@@ -88,7 +88,7 @@ static std::map<std::string, std::shared_ptr<nlohmann::json>> registered_network
                   { "tx_explorer_url", "https://blockstream.info/liquid/tx/" },
                   { "service_pubkey", "03093dbf539f6642934705de7dd78525815ddeac3c545258b2be16f93c00381b4b" },
                   { "service_chain_code", "9adf7662e49df9182d320243ec6d4e9a4a65fbced6984c73b266acc2a8964a0a" },
-                  { "default_peers", nlohmann::json::array() }, { "p2pkh_version", 57u }, { "p2sh_version", 39u },
+                  { "default_peers", nlohmann::json::array() }, { "p2pkh_version", 235u }, { "p2sh_version", 75u },
                   { "bech32_prefix", "lq" }, { "mainnet", true }, { "liquid", true }, { "development", false },
                   { "policy_asset", "6f0279e9ed041c3d710a9f57d0c02928416460c4b722ae3457a11eec381c526d" },
                   { "blinded_prefix", 12u }, { "ct_exponent", 0 }, { "ct_bits", 36 } })) },
