@@ -242,7 +242,7 @@ namespace sdk {
         nlohmann::json get_unspent_outputs(const nlohmann::json& details);
         nlohmann::json get_unspent_outputs_for_private_key(
             const std::string& private_key, const std::string& password, uint32_t unused);
-        nlohmann::json get_transaction_details(const std::string& txhash) const;
+        nlohmann::json get_transaction_details(const std::string& txhash);
         std::vector<nlohmann::json> get_transactions(uint32_t subaccount, uint32_t page_id);
 
         nlohmann::json create_transaction(const nlohmann::json& details);
@@ -275,7 +275,7 @@ namespace sdk {
         void ack_system_message(const std::string& message);
         void ack_system_message(const std::string& message_hash_hex, const std::string& sig_der_hex);
 
-        nlohmann::json convert_amount(const nlohmann::json& amount_json) const;
+        nlohmann::json convert_amount(const nlohmann::json& amount_json);
 
         bool has_blinding_nonce(const std::string& pubkey, const std::string& script);
         void set_blinding_nonce(const std::string& pubkey, const std::string& script, const std::string& nonce);
@@ -286,7 +286,7 @@ namespace sdk {
         uint32_t get_block_height() const;
         bool have_subaccounts() const;
         amount get_dust_threshold() const;
-        nlohmann::json get_spending_limits() const;
+        nlohmann::json get_spending_limits();
         bool is_spending_limits_decrease(const nlohmann::json& details);
         const network_parameters& get_network_parameters() const { return m_net_params; }
 
@@ -337,10 +337,10 @@ namespace sdk {
         void update_login_data(locker_t& locker, nlohmann::json& login_data, bool watch_only) GDK_REQUIRES(m_mutex);
         void update_fiat_rate(locker_t& locker, const std::string& rate_str) GDK_REQUIRES(m_mutex);
         void update_spending_limits(locker_t& locker, const nlohmann::json& limits) GDK_REQUIRES(m_mutex);
-        nlohmann::json get_spending_limits(locker_t& locker) const GDK_REQUIRES(m_mutex);
+        nlohmann::json get_spending_limits(locker_t& locker) GDK_REQUIRES(m_mutex);
         nlohmann::json get_subaccount(locker_t& locker, uint32_t subaccount) GDK_REQUIRES(m_mutex);
         nlohmann::json get_subaccount_balance_from_server(uint32_t subaccount, uint32_t num_confs);
-        nlohmann::json convert_amount(locker_t& locker, const nlohmann::json& amount_json) const GDK_REQUIRES(m_mutex);
+        nlohmann::json convert_amount(locker_t& locker, const nlohmann::json& amount_json) GDK_REQUIRES(m_mutex);
         nlohmann::json convert_fiat_cents(locker_t& locker, amount::value_type fiat_cents) const GDK_REQUIRES(m_mutex);
         nlohmann::json get_settings(locker_t& locker) GDK_REQUIRES(m_mutex);
         void unblind_utxo(nlohmann::json& utxo, const std::string& policy_asset);

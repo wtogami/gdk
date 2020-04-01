@@ -96,7 +96,7 @@ namespace sdk {
         return m_tor_ctrl ? m_tor_ctrl->wait_for_socks5(DEFAULT_TOR_SOCKS_WAIT, nullptr) : std::string{};
     }
 
-    nlohmann::json ga_rust::call_session(const std::string& method, const nlohmann::json& input) const
+    nlohmann::json ga_rust::call_session(const std::string& method, const nlohmann::json& input)
     {
         GDKRUST_json* ret;
         auto rustinput = gdkrust_json(input).get();
@@ -279,7 +279,7 @@ namespace sdk {
 
     nlohmann::json ga_rust::get_available_currencies() const
     {
-        return call_session("get_available_currencies", nlohmann::json{});
+        throw std::runtime_error("get_available_currencies not implemented");
     }
 
     nlohmann::json ga_rust::get_hw_device() const { return nlohmann::json{}; }
@@ -335,7 +335,7 @@ namespace sdk {
     {
         throw std::runtime_error("get_unspent_outputs_for_private_key not implemented");
     }
-    nlohmann::json ga_rust::get_transaction_details(const std::string& txhash_hex) const
+    nlohmann::json ga_rust::get_transaction_details(const std::string& txhash_hex)
     {
         auto details = nlohmann::json(txhash_hex);
         return call_session("get_transaction_details", details);
@@ -444,7 +444,7 @@ namespace sdk {
         throw std::runtime_error("ack_system_message not implemented");
     }
 
-    nlohmann::json ga_rust::convert_amount(const nlohmann::json& amount_json) const
+    nlohmann::json ga_rust::convert_amount(const nlohmann::json& amount_json)
     {
         auto currency = amount_json.value("fiat_currency", "USD");
         auto rate = amount_json.value("fiat_rate", "");
@@ -461,10 +461,7 @@ namespace sdk {
     bool ga_rust::have_subaccounts() const { throw std::runtime_error("have_subaccounts not implemented"); }
     uint32_t ga_rust::get_block_height() const { throw std::runtime_error("get_block_height not implemented"); }
     amount ga_rust::get_dust_threshold() const { throw std::runtime_error("get_dust_threshold not implemented"); }
-    nlohmann::json ga_rust::get_spending_limits() const
-    {
-        throw std::runtime_error("get_spending_limits not implemented");
-    }
+    nlohmann::json ga_rust::get_spending_limits() { throw std::runtime_error("get_spending_limits not implemented"); }
     bool ga_rust::is_spending_limits_decrease(const nlohmann::json& limit_details)
     {
         throw std::runtime_error("is_spending_limits_decrease not implemented");

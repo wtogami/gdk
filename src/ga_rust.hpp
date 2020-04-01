@@ -51,7 +51,7 @@ namespace sdk {
 
         explicit ga_rust(const nlohmann::json& net_params);
 
-        nlohmann::json call_session(const std::string& method, const nlohmann::json& input) const;
+        nlohmann::json call_session(const std::string& method, const nlohmann::json& input);
 
         void on_failed_login();
 
@@ -135,7 +135,7 @@ namespace sdk {
         nlohmann::json get_unspent_outputs(const nlohmann::json& details);
         nlohmann::json get_unspent_outputs_for_private_key(
             const std::string& private_key, const std::string& password, uint32_t unused);
-        nlohmann::json get_transaction_details(const std::string& txhash_hex) const;
+        nlohmann::json get_transaction_details(const std::string& txhash_hex);
 
         nlohmann::json create_transaction(const nlohmann::json& details);
         nlohmann::json sign_transaction(const nlohmann::json& details);
@@ -160,7 +160,7 @@ namespace sdk {
         void ack_system_message(const std::string& system_message);
         void ack_system_message(const std::string& message_hash_hex, const std::string& sig_der_hex);
 
-        nlohmann::json convert_amount(const nlohmann::json& amount_json) const;
+        nlohmann::json convert_amount(const nlohmann::json& amount_json);
 
         void blind_output(const nlohmann::json& details, const wally_tx_ptr& tx, uint32_t index,
             const nlohmann::json& o, const std::string& asset_commitment_hex, const std::string& value_commitment_hex,
@@ -179,7 +179,7 @@ namespace sdk {
         bool have_subaccounts() const;
         uint32_t get_block_height() const;
         amount get_dust_threshold() const;
-        nlohmann::json get_spending_limits() const;
+        nlohmann::json get_spending_limits();
         bool is_spending_limits_decrease(const nlohmann::json& limit_details);
 
         const network_parameters& get_network_parameters() const;

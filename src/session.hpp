@@ -166,7 +166,7 @@ namespace sdk {
         bool have_subaccounts() const;
         uint32_t get_block_height() const;
         amount get_dust_threshold() const;
-        nlohmann::json get_spending_limits() const;
+        nlohmann::json get_spending_limits();
         bool is_spending_limits_decrease(const nlohmann::json& limit_details);
 
         const network_parameters& get_network_parameters() const;

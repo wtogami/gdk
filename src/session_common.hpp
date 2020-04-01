@@ -136,7 +136,7 @@ namespace sdk {
         virtual nlohmann::json get_unspent_outputs_for_private_key(
             const std::string& private_key, const std::string& password, uint32_t unused)
             = 0;
-        virtual nlohmann::json get_transaction_details(const std::string& txhash_hex) const = 0;
+        virtual nlohmann::json get_transaction_details(const std::string& txhash_hex) = 0;
 
         virtual nlohmann::json create_transaction(const nlohmann::json& details) = 0;
         virtual nlohmann::json sign_transaction(const nlohmann::json& details) = 0;
@@ -167,14 +167,14 @@ namespace sdk {
         virtual void ack_system_message(const std::string& system_message) = 0;
         virtual void ack_system_message(const std::string& message_hash_hex, const std::string& sig_der_hex) = 0;
 
-        virtual nlohmann::json convert_amount(const nlohmann::json& amount_json) const = 0;
+        virtual nlohmann::json convert_amount(const nlohmann::json& amount_json) = 0;
 
         virtual amount get_min_fee_rate() const = 0;
         virtual amount get_default_fee_rate() const = 0;
         virtual bool have_subaccounts() const = 0;
         virtual uint32_t get_block_height() const = 0;
         virtual amount get_dust_threshold() const = 0;
-        virtual nlohmann::json get_spending_limits() const = 0;
+        virtual nlohmann::json get_spending_limits() = 0;
         virtual bool is_spending_limits_decrease(const nlohmann::json& limit_details) = 0;
 
         virtual void set_local_encryption_key(byte_span_t key) = 0;

@@ -910,7 +910,7 @@ namespace sdk {
         return p->get_dust_threshold(); // Note no exception_wrapper
     }
 
-    nlohmann::json session::get_spending_limits() const
+    nlohmann::json session::get_spending_limits()
     {
         auto p = get_nonnull_impl();
         return p->get_spending_limits(); // Note no exception_wrapper

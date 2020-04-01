@@ -1156,13 +1156,13 @@ namespace sdk {
         return m_subaccounts.size() != 1u;
     }
 
-    nlohmann::json ga_session::get_spending_limits() const
+    nlohmann::json ga_session::get_spending_limits()
     {
         locker_t locker(m_mutex);
         return get_spending_limits(locker);
     }
 
-    nlohmann::json ga_session::get_spending_limits(locker_t& locker) const
+    nlohmann::json ga_session::get_spending_limits(locker_t& locker)
     {
         GDK_RUNTIME_ASSERT(locker.owns_lock());
 
@@ -1697,13 +1697,13 @@ namespace sdk {
         m_system_message_ack = std::string();
     }
 
-    nlohmann::json ga_session::convert_amount(const nlohmann::json& amount_json) const
+    nlohmann::json ga_session::convert_amount(const nlohmann::json& amount_json)
     {
         locker_t locker(m_mutex);
         return convert_amount(locker, amount_json);
     }
 
-    nlohmann::json ga_session::convert_amount(locker_t& locker, const nlohmann::json& amount_json) const
+    nlohmann::json ga_session::convert_amount(locker_t& locker, const nlohmann::json& amount_json)
     {
         GDK_RUNTIME_ASSERT(locker.owns_lock());
         return amount::convert(amount_json, m_fiat_currency, m_fiat_rate);
@@ -2620,7 +2620,7 @@ namespace sdk {
     }
 
     // Idempotent
-    nlohmann::json ga_session::get_transaction_details(const std::string& txhash) const
+    nlohmann::json ga_session::get_transaction_details(const std::string& txhash)
     {
         std::string tx_data;
         wamp_call([&tx_data](wamp_call_result result) { tx_data = result.get().argument<std::string>(0); },
