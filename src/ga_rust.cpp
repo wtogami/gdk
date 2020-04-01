@@ -7,6 +7,7 @@
 #endif
 
 #include "ga_rust.hpp"
+#include "events.hpp"
 #include "exception.hpp"
 #include "logging.hpp"
 #include "utils.hpp"
@@ -127,6 +128,10 @@ namespace sdk {
         }
 
         call_session("connect", m_netparams.get_json());
+
+    void ga_rust::call_notification_handler(locker_t& locker, nlohmann::json* details) GDK_REQUIRES(m_sync_mutex)
+    {
+        events::call_notification_handler(&m_ga_notif_handler, &m_ga_notif_context, locker, details);
     }
 
     void ga_rust::disconnect() { call_session("disconnect", {}); }

@@ -7,9 +7,11 @@
 #include "ga_tor.hpp"
 #include "network_parameters.hpp"
 #include "session_common.hpp"
+#include "threading.hpp"
 
 namespace ga {
 namespace sdk {
+    using locker_t = annotated_unique_lock<annotated_mutex>;
 
     class gdkrust_json {
     public:
@@ -72,6 +74,7 @@ namespace sdk {
         nlohmann::json refresh_assets(const nlohmann::json& params);
         nlohmann::json validate_asset_domain_name(const nlohmann::json& params);
 
+        void call_notification_handler(locker_t& locker, nlohmann::json* details) GDK_REQUIRES(m_sync_mutex);
         void register_user(const std::string& mnemonic, bool supports_csv);
         void register_user(const std::string& master_pub_key_hex, const std::string& master_chain_code_hex,
             const std::string& gait_path_hex, bool supports_csv);

@@ -2,6 +2,7 @@
 #define GDK_THREAD_SAFETY_HPP
 #pragma once
 
+#include "assertion.hpp"
 #include <mutex>
 
 #if defined(__clang__) && (!defined(SWIG)) && (!defined(__FreeBSD__))

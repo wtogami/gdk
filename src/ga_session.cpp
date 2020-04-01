@@ -18,6 +18,7 @@
 
 #include "autobahn_wrapper.hpp"
 #include "boost_wrapper.hpp"
+#include "events.hpp"
 #include "exception.hpp"
 #include "ga_session.hpp"
 #include "ga_strings.hpp"
@@ -558,10 +559,7 @@ namespace sdk {
     void ga_session::emit_notification(std::string event, nlohmann::json details)
     {
         asio::post(m_pool, [this, event, details] {
-            locker_t locker{ m_mutex };
-            if (m_notification_handler != nullptr) {
-                call_notification_handler(locker, new nlohmann::json({ { "event", event }, { event, details } }));
-            }
+            events::emit_notification(m_mutex, &m_notification_handler, &m_notification_context, event, details);
         });
     }
 
@@ -2406,20 +2404,7 @@ namespace sdk {
 
     void ga_session::call_notification_handler(locker_t& locker, nlohmann::json* details)
     {
-        GDK_RUNTIME_ASSERT(locker.owns_lock());
-        GDK_RUNTIME_ASSERT(m_notification_handler != nullptr);
-        // Note: notification recipient must destroy the passed JSON
-        const auto details_c = reinterpret_cast<const GA_json*>(details);
-        {
-            GA_notification_handler handler = m_notification_handler;
-            void* context = m_notification_context;
-
-            unique_unlock unlocker(locker);
-            handler(context, details_c);
-        }
-        if (details_c == nullptr) {
-            set_notification_handler(locker, nullptr, nullptr);
-        }
+        events::call_notification_handler(&m_notification_handler, &m_notification_context, locker, details);
     }
 
     amount ga_session::get_dust_threshold() const
