@@ -55,6 +55,7 @@ namespace sdk {
 
         void on_failed_login();
 
+        void sync();
         bool is_connected() const;
         void set_ping_fail_handler(ping_fail_t handler);
         void set_heartbeat_timeout_handler(websocketpp::pong_timeout_handler);
@@ -190,9 +191,18 @@ namespace sdk {
 
         void set_local_encryption_key(byte_span_t key);
         void disable_all_pin_logins();
+        static bool has_new_notifications(nlohmann::json& details);
 
     private:
         static void GDKRUST_notif_handler(void* self_context, GDKRUST_json* json);
+
+        /** The sync thread is responsible for periodically calling
+            the sync function on electrum backends. sync is used for
+            checking for new blocks or transactions related to the wallet.
+         */
+        std::thread m_sync_thread;
+        mutable annotated_mutex m_sync_mutex;
+        std::chrono::seconds m_sync_rate;
 
         network_parameters m_netparams;
         std::shared_ptr<tor_controller> m_tor_ctrl;

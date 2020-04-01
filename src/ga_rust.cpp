@@ -44,6 +44,10 @@ namespace sdk {
         : m_netparams(ga::sdk::network_parameters(net_params))
     {
         GDKRUST_create_session(&m_session, gdkrust_json(m_netparams.get_json()).get());
+
+        // how often sync is called for electrum backends
+        int sync_rate = net_params.value("sync_rate", 15);
+        m_sync_rate = std::chrono::seconds(sync_rate);
     }
 
     ga_rust::~ga_rust()
@@ -100,7 +104,12 @@ namespace sdk {
     {
         GDKRUST_json* ret;
         auto rustinput = gdkrust_json(input).get();
-        int res = GDKRUST_call_session(m_session, method.c_str(), rustinput, &ret);
+
+        {
+            /* If we're syncing, lock all calls to rust  */
+            std::unique_lock<std::mutex> lock(m_sync_mutex);
+            int res = GDKRUST_call_session(m_session, method.c_str(), rustinput, &ret);
+        }
         check_code(res);
         return gdkrust_json::from_serde(ret);
     }
@@ -128,6 +137,29 @@ namespace sdk {
         }
 
         call_session("connect", m_netparams.get_json());
+
+        // start sync thread
+        m_sync_thread = std::thread([this] {
+            for (;;) {
+                std::this_thread::sleep_for(m_sync_rate);
+                sync();
+            }
+        });
+    }
+
+    void ga_rust::sync()
+    {
+        auto res = call_session("sync", nlohmann::json{});
+
+        if (ga_rust::has_new_notifications(res)) {
+            locker_t locker{ m_sync_mutex };
+            for (auto& notification : res.items()) {
+                this->call_notification_handler(locker, &notification.value());
+            }
+        }
+    }
+
+    bool ga_rust::has_new_notifications(nlohmann::json& details) { return details.is_array() && details.size() > 0; }
 
     void ga_rust::call_notification_handler(locker_t& locker, nlohmann::json* details) GDK_REQUIRES(m_sync_mutex)
     {

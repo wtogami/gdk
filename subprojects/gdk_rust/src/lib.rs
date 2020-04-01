@@ -403,6 +403,8 @@ where
             session.get_fee_estimates().map_err(Into::into).and_then(|x| fee_estimate_values(&x))
         }
 
+        "sync" => session.sync().map(notification_values).map_err(Into::into),
+
         "get_settings" => session.get_settings().map_err(Into::into),
         "get_available_currencies" => session.get_available_currencies().map_err(Into::into),
         "change_settings" => session
