@@ -299,9 +299,13 @@ impl Forest {
         Ok(self.singles.insert([int_or_ext as u8], &value.to_be_bytes()).map(|_| ())?)
     }
     pub fn get_index(&self, int_or_ext: Index) -> Result<u32, Error> {
-        let ivec = self.singles.get([int_or_ext as u8])?.ok_or_else(fn_err("no index"))?;
-        let bytes: [u8; 4] = ivec.as_ref().try_into()?;
-        Ok(u32::from_be_bytes(bytes))
+        match self.singles.get([int_or_ext as u8])? {
+            Some(ivec) => {
+                let bytes: [u8; 4] = ivec.as_ref().try_into()?;
+                Ok(u32::from_be_bytes(bytes))
+            }
+            None => Ok(0),
+        }
     }
     pub fn increment_index(&self, int_or_ext: Index, increment: u32) -> Result<u32, Error> {
         //TODO should be done atomically
@@ -328,7 +332,7 @@ impl Forest {
         self.singles.get(b"r")?.map(|v| Ok(serde_json::from_slice::<Value>(&v)?)).transpose()
     }
     pub fn insert_asset_registry(&self, asset_registry: &Value) -> Result<(), Error> {
-        Ok(self.singles.insert(b"r", serde_json::to_vec(asset_registry)? ).map(|_| ())?)
+        Ok(self.singles.insert(b"r", serde_json::to_vec(asset_registry)?).map(|_| ())?)
     }
 
     pub fn is_mine(&self, script: &Script) -> bool {

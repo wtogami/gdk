@@ -400,6 +400,7 @@ impl WalletCtx {
                 info!("popped out utxo: {:?}", utxo);
 
                 // UTXO with same script should be spent together
+                // TODO for liquid, different assets with same script should be spent together too
                 let mut same_script_utxo = vec![];
                 for other_utxo in utxos.iter() {
                     if (other_utxo.1).script == (utxo.1).script {
@@ -448,7 +449,7 @@ impl WalletCtx {
                     return Err(Error::SendAll);
                 }
                 let change_index = self.db.get_index(Index::Internal)? + change_increment;
-                change_increment += 1;  // in liquid there are more than 1 change, using different addresses
+                change_increment += 1; // in liquid there are more than 1 change, using different addresses
                 let change_address =
                     self.derive_address(&self.xpub, &[1, change_index])?.to_string();
                 info!("adding change {:?}", change_address);
@@ -488,7 +489,7 @@ impl WalletCtx {
             "outgoing".to_string(),
         );
         created_tx.create_transaction = Some(request.clone());
-        created_tx.changes_used = Some(change_increment-1);
+        created_tx.changes_used = Some(change_increment - 1);
         info!("returning: {:?}", created_tx);
 
         Ok(created_tx)
@@ -618,7 +619,6 @@ impl WalletCtx {
             self.db.increment_index(Index::Internal, changes_used)?;
         }
 
-
         Ok(betx)
     }
 
@@ -669,8 +669,7 @@ impl WalletCtx {
         let out_num = tx.output.len();
 
         let output_abfs: Vec<Vec<u8>> = (0..out_num - 1).map(|_| random32()).collect();
-        let mut output_vbfs: Vec<Vec<u8>> =
-            (0..out_num - 2).map(|_| random32()).collect();
+        let mut output_vbfs: Vec<Vec<u8>> = (0..out_num - 2).map(|_| random32()).collect();
 
         let mut all_abfs = vec![];
         all_abfs.extend(input_abfs.to_vec());

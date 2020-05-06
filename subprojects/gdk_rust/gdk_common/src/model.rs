@@ -80,7 +80,7 @@ impl ExchangeRateOk {
 
 // =========== ^ exchange rate stuff ^ ===========
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct AddressAmount {
     pub address: String, // could be bitcoin or elements
     pub satoshi: u64,
@@ -104,7 +104,7 @@ pub enum Notification {
     Transaction(TransactionNotification),
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct CreateTransaction {
     pub addressees: Vec<AddressAmount>,
     pub fee_rate: Option<u64>, // in satoshi/kbyte

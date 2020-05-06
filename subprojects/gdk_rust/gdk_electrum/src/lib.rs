@@ -372,6 +372,7 @@ impl Session<Error> for ElectrumSession {
 
         let wallet_desc = format!("{}{:?}", xpub, self.network);
         let wallet_id = hex::encode(sha256::Hash::hash(wallet_desc.as_bytes()));
+        let sync_interval = self.network.sync_interval.unwrap_or(7);
 
         let master_blinding = if self.network.liquid {
             Some(asset_blinding_key_from_seed(&seed))
@@ -395,7 +396,7 @@ impl Session<Error> for ElectrumSession {
             let db_for_registry = db.clone();
             registry_thread = Some(thread::spawn(move || {
                 info!("start registry thread");
-                //TODO add if_modified_since
+                // TODO add if_modified_since, gzip encoding
                 let registry = ureq::get("https://assets.blockstream.info/index.json").call();
                 let icons = ureq::get("https://assets.blockstream.info/icons.json").call();
                 if registry.status() == 200 && icons.status() == 200 {
@@ -404,7 +405,8 @@ impl Session<Error> for ElectrumSession {
                             info!("got registry and icons");
                             if let Some(policy) = registry_policy {
                                 info!("inserting policy asset {}", policy);
-                                registry[policy.to_string()] = json!({"asset_id": policy.to_string(), "name": "btc"});
+                                registry[policy.to_string()] =
+                                    json!({"asset_id": policy.to_string(), "name": "btc"});
                             }
 
                             db_for_registry.insert_asset_registry(&registry).unwrap();
@@ -471,7 +473,7 @@ impl Session<Error> for ElectrumSession {
         let (close_tipper, r) = channel();
         self.closer.senders.push(close_tipper);
         thread::spawn(move || 'outer: loop {
-            for _ in 0..7 {
+            for _ in 0..sync_interval {
                 thread::sleep(Duration::from_secs(1));
                 if r.try_recv().is_ok() {
                     info!("closing tipper");
@@ -490,7 +492,9 @@ impl Session<Error> for ElectrumSession {
                 Err(e) => {
                     warn!("exception in tipper {:?}", e);
                     match e {
-                        Error::ClientError(electrum_client::types::Error::JSON(_)) => info!("tipper Client error, doing nothing"),
+                        Error::ClientError(electrum_client::types::Error::JSON(_)) => {
+                            info!("tipper Client error, doing nothing")
+                        }
                         _ => {
                             warn!("trying to recreate died tipper client, {:?}", e);
                             match &mut tipper {
@@ -501,7 +505,9 @@ impl Session<Error> for ElectrumSession {
                                     }
                                 }
                                 TipperKind::Tls(tipper, url, validate) => {
-                                    if let Ok(client) = electrum_client::Client::new_ssl(url.as_str(), *validate) {
+                                    if let Ok(client) =
+                                        electrum_client::Client::new_ssl(url.as_str(), *validate)
+                                    {
                                         info!("succesfully created new tipper client");
                                         tipper.client = client;
                                     }
@@ -536,7 +542,9 @@ impl Session<Error> for ElectrumSession {
                             }
                         }
                         SyncerKind::Tls(syncer, url, validate) => {
-                            if let Ok(client) = electrum_client::Client::new_ssl(url.as_str(), *validate) {
+                            if let Ok(client) =
+                                electrum_client::Client::new_ssl(url.as_str(), *validate)
+                            {
                                 info!("succesfully created new syncer client");
                                 syncer.client = client
                             }
@@ -544,7 +552,7 @@ impl Session<Error> for ElectrumSession {
                     }
                 }
             };
-            for _ in 0..9 {
+            for _ in 0..sync_interval {
                 thread::sleep(Duration::from_secs(1));
                 if r.try_recv().is_ok() {
                     info!("closing syncer");
