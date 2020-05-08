@@ -321,6 +321,19 @@ impl Forest {
         self.singles.get(b"s")?.map(|v| Ok(serde_json::from_slice::<Settings>(&v)?)).transpose()
     }
 
+    pub fn insert_tip(&self, height: u32) -> Result<(), Error> {
+        Ok(self.singles.insert(b"t", &height.to_be_bytes()).map(|_| ())?)
+    }
+    pub fn get_tip(&self) -> Result<u32, Error> {
+        match self.singles.get(b"t")? {
+            Some(ivec) => {
+                let bytes: [u8; 4] = ivec.as_ref().try_into()?;
+                Ok(u32::from_be_bytes(bytes))
+            }
+            None => Ok(0),
+        }
+    }
+
     pub fn get_asset_icons(&self) -> Result<Option<Value>, Error> {
         self.singles.get(b"i")?.map(|v| Ok(serde_json::from_slice::<Value>(&v)?)).transpose()
     }
