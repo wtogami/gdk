@@ -1,5 +1,6 @@
-use bitcoin::{Address, Amount};
+use bitcoin::{Address, Amount, Txid};
 use bitcoincore_rpc::{Auth, Client, RpcApi};
+use electrum_client::client::ElectrumPlaintextStream;
 use gdk_common::mnemonic::Mnemonic;
 use gdk_common::model::*;
 use gdk_common::session::Session;
@@ -16,6 +17,13 @@ use std::{env, thread};
 use tempdir::TempDir;
 
 static LOGGER: SimpleLogger = SimpleLogger;
+
+struct TestSession {
+    node: Client,
+    electrs: electrum_client::Client<ElectrumPlaintextStream>,
+    session: ElectrumSession,
+    status: u64,
+}
 
 // ELECTRS_EXEC=/Users/casatta/github/romanz/electrs/target/release/electrs BITCOIND_EXEC=bitcoind WALLY_DIR=nothing cargo test
 #[test]
@@ -56,7 +64,7 @@ fn integration_bitcoin() {
     println!("Bitcoin spawned");
 
     // wait bitcoind is ready, use default wallet
-    let client: Client = loop {
+    let node: Client = loop {
         thread::sleep(Duration::from_millis(500));
         assert!(bitcoind.stderr.is_none());
         let client_result = Client::new(node_url.clone(), Auth::CookieFile(cookie_file.clone()));
@@ -72,7 +80,7 @@ fn integration_bitcoin() {
 
     let electrs_work_dir = TempDir::new("electrs_test").unwrap();
     let electrs_url = "127.0.0.1:60401";
-    let mut electrs = Command::new(electrs_exec)
+    let mut electrs_process = Command::new(electrs_exec)
         .arg("-vvv")
         .arg("--db-dir")
         .arg(format!("{}", electrs_work_dir.path().display()))
@@ -86,18 +94,20 @@ fn integration_bitcoin() {
         .arg("regtest")
         .spawn()
         .unwrap();
-    println!("Electrs spawned {:?}", electrs.stdout);
+    println!("Electrs spawned");
 
-    let node_address = client.get_new_address(None, None).unwrap();
-    let blocks = client.generate_to_address(101, &node_address).unwrap();
+    let node_address = node.get_new_address(None, None).unwrap();
+    let blocks = node.generate_to_address(101, &node_address).unwrap();
     println!("blocks {:?}", &blocks);
 
-    //TODO do the wait like bitcoind
-    thread::sleep(Duration::from_secs(5));
-    println!("Electrs after 5 secs {:?}", electrs.stdout);
-    let mut electrum_client = electrum_client::Client::new(electrs_url).unwrap();
-    let header = electrum_client.block_headers_subscribe().unwrap();
-    println!("header {:?}", &header);
+    let mut electrs = loop {
+        match electrum_client::Client::new(electrs_url) {
+            Ok(c) => break c,
+            Err(_) => thread::sleep(Duration::from_millis(500)),
+        }
+    };
+    let header = electrs.block_headers_subscribe().unwrap();
+    assert_eq!(header.height, 101);
 
     let mut network = Network::default();
     network.url = Some(electrs_url.to_string());
@@ -110,51 +120,17 @@ fn integration_bitcoin() {
     let mnemonic: Mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about".to_string().into();
     session.login(&mnemonic, None).unwrap();
 
-    let ap = session.get_receive_address(&Value::Null).unwrap();
-    assert_eq!(ap.pointer, 1);
+    //TODO make struct with node, electrs, session
 
-    println!("{:?}", ap.address);
-    let amount = Amount::from_sat(100000);
-    let txid = client
-        .send_to_address(
-            &Address::from_str(&ap.address).unwrap(),
-            amount,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
-        .unwrap();
+    let mut test_session = TestSession::new(node, electrs, session);
 
-    println!("{:?}", txid);
+    test_session.fund(100_000_000);
+    test_session.send_tx(&node_address, 10_000);
+    test_session.mine_block();
 
-    thread::sleep(Duration::from_secs(7));
-    let balances = session.get_balance(0, None).unwrap();
-
-    println!("{:?}", balances);
-    assert_eq!(*balances.get("btc").unwrap() as u64, amount.as_sat());
-
-    let mut create_opt = CreateTransaction::default();
-    create_opt.addressees.push(AddressAmount {
-        address: node_address.to_string(),
-        satoshi: 1000,
-        asset_tag: None,
-    });
-    println!("{:?}", create_opt);
-    let tx = session.create_transaction(&mut create_opt).unwrap();
-    println!("{:?}", tx);
-    let signed_tx = session.sign_transaction(&tx).unwrap();
-    println!("{:?}", signed_tx);
-    let txid = session.broadcast_transaction(&signed_tx.hex).unwrap();
-    println!("{:?}", txid);
-    client.generate_to_address(1, &node_address).unwrap();
-
-    client.stop().unwrap();
+    test_session.stop();
     bitcoind.wait().unwrap();
-    println!("Electrs will be killed {:?}", electrs.stdout);
-    electrs.kill().unwrap();
+    electrs_process.kill().unwrap();
 }
 
 //TODO duplicated why I cannot import?
@@ -176,4 +152,99 @@ impl log::Log for SimpleLogger {
     }
 
     fn flush(&self) {}
+}
+
+impl TestSession {
+    fn new(
+        node: Client,
+        electrs: electrum_client::Client<ElectrumPlaintextStream>,
+        session: ElectrumSession,
+    ) -> Self {
+        let status = session.status().unwrap();
+        assert_eq!(status, 10054026157014211072);
+        TestSession {
+            status,
+            node,
+            electrs,
+            session,
+        }
+    }
+
+    /// wait gdk session status to change (new tx)
+    fn wait_status_change(&mut self) {
+        loop {
+            let new_status = self.session.status().unwrap();
+            if self.status != new_status {
+                self.status = new_status;
+                break;
+            }
+            thread::sleep(Duration::from_millis(500));
+        }
+    }
+
+    /// fund the gdk session with satoshis from the node
+    fn fund(&mut self, satoshi: u64) {
+        let initial_satoshis = self.satoshi();
+        let ap = self.session.get_receive_address(&Value::Null).unwrap();
+        assert_eq!(ap.pointer, 1);
+
+        let address = Address::from_str(&ap.address).unwrap();
+        client_send_to_address(&self.node, &address, satoshi);
+
+        self.wait_status_change();
+
+        assert_eq!(self.satoshi(), initial_satoshis + satoshi);
+    }
+
+    /// send a tx from the gdk session to the specified address
+    fn send_tx(&mut self, address: &Address, satoshi: u64) {
+        let initial_satoshis = self.satoshi();
+        let mut create_opt = CreateTransaction::default();
+        create_opt.addressees.push(AddressAmount {
+            address: address.to_string(),
+            satoshi,
+            asset_tag: None,
+        });
+        let tx = self.session.create_transaction(&mut create_opt).unwrap();
+        let signed_tx = self.session.sign_transaction(&tx).unwrap();
+        self.session.broadcast_transaction(&signed_tx.hex).unwrap();
+        self.wait_status_change();
+        assert_eq!(self.satoshi(), initial_satoshis - satoshi - tx.fee);
+    }
+
+    /// mine a block with the node and check if gdk session see the change 
+    fn mine_block(&mut self) {
+        let initial_height = self.electrs_tip();
+        let address = self.node.get_new_address(None, None).unwrap();
+        self.node.generate_to_address(1, &address).unwrap();
+        self.wait_status_change();
+        let new_height  = self.electrs_tip();
+        assert_eq!(initial_height + 1, new_height);
+    }
+
+    fn electrs_tip(&mut self) -> usize {
+        loop {
+            match self.electrs.block_headers_subscribe() {
+                Ok(header) => return header.height,
+                Err(_)  => println!("err"),
+             }
+        }
+    }
+    
+    /// balance in satoshi of the gdk session
+    fn satoshi(&self) -> u64 {
+        let initial_balances = self.session.get_balance(0, None).unwrap();
+        *initial_balances.get("btc").unwrap() as u64
+    }
+
+    /// stop the bitcoin node in the test session
+    fn stop(&self) {
+        self.node.stop().unwrap();
+    }
+}
+
+fn client_send_to_address(client: &Client, address: &Address, satoshi: u64) -> Txid {
+    client
+        .send_to_address(&address, Amount::from_sat(satoshi), None, None, None, None, None, None)
+        .unwrap()
 }

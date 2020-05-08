@@ -42,6 +42,9 @@ use std::sync::mpsc::{channel, Sender};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use std::collections::hash_map::DefaultHasher;
+use std::hash::Hasher;
+
 pub enum SyncerKind {
     Plain(Syncer<ElectrumPlaintextStream>, String),
     Tls(Syncer<ElectrumSslStream>, String, bool),
@@ -122,13 +125,15 @@ pub struct Syncer<S: Read + Write> {
 }
 
 pub struct Tipper<S: Read + Write> {
+    pub db: Forest,
     pub client: electrum_client::Client<S>,
     pub network: Network,
 }
 
 impl<S: Read + Write> Tipper<S> {
-    pub fn new(client: electrum_client::Client<S>, network: Network) -> Result<Self, Error> {
+    pub fn new(db: Forest, client: electrum_client::Client<S>, network: Network) -> Result<Self, Error> {
         Ok(Tipper {
+            db,
             client,
             network,
         })
@@ -442,14 +447,14 @@ impl Session<Error> for ElectrumSession {
             ElectrumUrl::Tls(url, validate) => {
                 let client = electrum_client::Client::new_ssl(url.as_str(), *validate)?;
                 TipperKind::Tls(
-                    Tipper::new(client, self.network.clone())?,
+                    Tipper::new(db.clone(), client, self.network.clone())?,
                     url.to_string(),
                     *validate,
                 )
             }
             ElectrumUrl::Plaintext(url) => {
                 let client = electrum_client::Client::new(&url)?;
-                TipperKind::Plain(Tipper::new(client, self.network.clone())?, url.to_string())
+                TipperKind::Plain(Tipper::new(db.clone(), client, self.network.clone())?, url.to_string())
             }
         };
 
@@ -706,11 +711,28 @@ impl Session<Error> for ElectrumSession {
         }
         Ok(Value::Object(map))
     }
+
+    fn status(&self) -> Result<u64, Error> {
+        let mut opt = GetTransactionsOpt::default();
+        opt.count = 100;
+        let txs = self.get_wallet()?.list_tx(&opt)?;
+        let mut hasher = DefaultHasher::new();
+        for tx in txs.iter() {
+            info!("hasing {}", tx.txid);
+            std::hash::Hash::hash(&tx.txid, &mut hasher);
+        }
+        let tip = self.get_wallet()?.get_tip()?;
+        std::hash::Hash::hash(&tip.to_be_bytes(), &mut hasher);
+        let status = hasher.finish();
+        info!("txs.len = {} status is {}", txs.len(), status);
+        Ok(status)
+    }
 }
 
 impl<S: Read + Write> Tipper<S> {
     pub fn tip(&mut self) -> Result<usize, Error> {
         let header = self.client.block_headers_subscribe_raw()?;
+        self.db.insert_tip(header.height as u32)?;
         Ok(header.height)
     }
 }
