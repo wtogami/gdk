@@ -718,13 +718,12 @@ impl Session<Error> for ElectrumSession {
         let txs = self.get_wallet()?.list_tx(&opt)?;
         let mut hasher = DefaultHasher::new();
         for tx in txs.iter() {
-            info!("hasing {}", tx.txid);
             std::hash::Hash::hash(&tx.txid, &mut hasher);
         }
         let tip = self.get_wallet()?.get_tip()?;
-        std::hash::Hash::hash(&tip.to_be_bytes(), &mut hasher);
+        std::hash::Hash::hash(&tip, &mut hasher);
         let status = hasher.finish();
-        info!("txs.len = {} status is {}", txs.len(), status);
+        debug!("txs.len={} tip={} status={}", txs.len(), tip, status);
         Ok(status)
     }
 }

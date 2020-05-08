@@ -1,4 +1,5 @@
-use bitcoin::{Address, Amount, Txid};
+use bitcoin::consensus::encode::deserialize;
+use bitcoin::{Address, Amount, Transaction, Txid};
 use bitcoincore_rpc::{Auth, Client, RpcApi};
 use electrum_client::client::ElectrumPlaintextStream;
 use gdk_common::mnemonic::Mnemonic;
@@ -98,6 +99,7 @@ fn integration_bitcoin() {
 
     let node_address = node.get_new_address(None, None).unwrap();
     let blocks = node.generate_to_address(101, &node_address).unwrap();
+    let node_address = node.get_new_address(None, None).unwrap();
     println!("blocks {:?}", &blocks);
 
     let mut electrs = loop {
@@ -126,6 +128,8 @@ fn integration_bitcoin() {
 
     test_session.fund(100_000_000);
     test_session.send_tx(&node_address, 10_000);
+    test_session.send_all(&node_address);
+
     test_session.mine_block();
 
     test_session.stop();
@@ -161,7 +165,7 @@ impl TestSession {
         session: ElectrumSession,
     ) -> Self {
         let status = session.status().unwrap();
-        assert_eq!(status, 10054026157014211072);
+        assert_eq!(status, 9288996555440648771);
         TestSession {
             status,
             node,
@@ -196,10 +200,37 @@ impl TestSession {
         assert_eq!(self.satoshi(), initial_satoshis + satoshi);
     }
 
+    /// send all of the balance of the  tx from the gdk session to the specified address
+    fn send_all(&mut self, address: &Address) {
+        let init_sat = self.satoshi();
+        let init_sat_addr = self.satoshi_addr(address);
+        let mut create_opt = CreateTransaction::default();
+        let fee_rate = 1000;
+        create_opt.fee_rate = Some(fee_rate);
+        create_opt.addressees.push(AddressAmount {
+            address: address.to_string(),
+            satoshi: 0,
+            asset_tag: None,
+        });
+        create_opt.send_all = Some(true);
+        let tx = self.session.create_transaction(&mut create_opt).unwrap();
+        let signed_tx = self.session.sign_transaction(&tx).unwrap();
+        self.check_fee_rate(fee_rate, &signed_tx);
+        self.session.broadcast_transaction(&signed_tx.hex).unwrap();
+        self.wait_status_change();
+        //TODO check fee rate
+        let end_sat_addr = self.satoshi_addr(address);
+        assert_eq!(init_sat_addr + init_sat - tx.fee, end_sat_addr);
+        assert_eq!(self.satoshi(), 0);
+    }
+
     /// send a tx from the gdk session to the specified address
     fn send_tx(&mut self, address: &Address, satoshi: u64) {
-        let initial_satoshis = self.satoshi();
+        let init_sat = self.satoshi();
+        let init_sat_addr = self.satoshi_addr(address);
         let mut create_opt = CreateTransaction::default();
+        let fee_rate = 1000;
+        create_opt.fee_rate = Some(fee_rate);
         create_opt.addressees.push(AddressAmount {
             address: address.to_string(),
             satoshi,
@@ -207,30 +238,54 @@ impl TestSession {
         });
         let tx = self.session.create_transaction(&mut create_opt).unwrap();
         let signed_tx = self.session.sign_transaction(&tx).unwrap();
+        self.check_fee_rate(fee_rate, &signed_tx);
         self.session.broadcast_transaction(&signed_tx.hex).unwrap();
         self.wait_status_change();
-        assert_eq!(self.satoshi(), initial_satoshis - satoshi - tx.fee);
+        let end_sat_addr = self.satoshi_addr(address);
+        assert_eq!(init_sat_addr + satoshi, end_sat_addr);
+        assert_eq!(self.satoshi(), init_sat - satoshi - tx.fee);
     }
 
-    /// mine a block with the node and check if gdk session see the change 
+    //fn send_multi
+
+    /// mine a block with the node and check if gdk session see the change
     fn mine_block(&mut self) {
         let initial_height = self.electrs_tip();
         let address = self.node.get_new_address(None, None).unwrap();
         self.node.generate_to_address(1, &address).unwrap();
         self.wait_status_change();
-        let new_height  = self.electrs_tip();
+        let new_height = self.electrs_tip();
         assert_eq!(initial_height + 1, new_height);
     }
 
+fn check_fee_rate(&self, req_rate: u64, tx_meta: &TransactionMeta) {
+    let transaction: Transaction = deserialize(&hex::decode(&tx_meta.hex).unwrap()).unwrap();
+    let real_rate = tx_meta.fee as f64 / (transaction.get_weight() as f64 / 4.0);
+    let req_rate = req_rate as f64 / 1000.0;
+    let max_perc_diff = 0.90;  // TODO improve fee estimation and decrease this
+    assert!(
+        ((real_rate - req_rate).abs() / real_rate) < max_perc_diff,
+        format!("real_rate:{} req_rate:{}", real_rate, req_rate)
+    ); // percentage difference between fee rate requested vs real fee
+    let relay_fee = self.node.get_network_info().unwrap().relay_fee.as_sat() as f64 / 1000.0;
+    assert!(real_rate > relay_fee, "fee rate is under relay_fee");
+    //TODO check greater than relay fee!
+}
+
+    /// ask the blockcain tip to electrs
     fn electrs_tip(&mut self) -> usize {
         loop {
             match self.electrs.block_headers_subscribe() {
                 Ok(header) => return header.height,
-                Err(_)  => println!("err"),
-             }
+                Err(_) => println!("err"), // fixme, for some reason it errors once every two try
+            }
         }
     }
-    
+
+    fn satoshi_addr(&mut self, address: &Address) -> u64 {
+        self.electrs.script_get_balance(&address.script_pubkey()).unwrap().unconfirmed
+    }
+
     /// balance in satoshi of the gdk session
     fn satoshi(&self) -> u64 {
         let initial_balances = self.session.get_balance(0, None).unwrap();

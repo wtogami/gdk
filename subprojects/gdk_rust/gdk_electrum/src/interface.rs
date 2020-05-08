@@ -530,7 +530,7 @@ impl WalletCtx {
 
     pub fn sign(&self, request: &TransactionMeta) -> Result<TransactionMeta, Error> {
         info!("sign");
-        let betx: TransactionMeta = match self.network.id() {
+        let mut betx: TransactionMeta = match self.network.id() {
             NetworkId::Bitcoin(_) => {
                 let tx: bitcoin::Transaction =
                     bitcoin::consensus::deserialize(&hex::decode(&request.hex)?)?;
@@ -622,6 +622,7 @@ impl WalletCtx {
             info!("tx used {} changes", changes_used);
             self.db.increment_index(Index::Internal, changes_used)?;
         }
+        betx.fee = request.fee;
 
         Ok(betx)
     }
