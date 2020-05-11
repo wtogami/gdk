@@ -11,6 +11,7 @@ use log::LevelFilter;
 use log::{Metadata, Record};
 use serde_json::Value;
 use std::net::TcpStream;
+use std::process::Child;
 use std::process::Command;
 use std::str::FromStr;
 use std::time::Duration;
@@ -24,11 +25,51 @@ struct TestSession {
     electrs: electrum_client::Client<ElectrumPlaintextStream>,
     session: ElectrumSession,
     status: u64,
+    bitcoind_process: Child,
+    electrs_process: Child,
 }
 
-// ELECTRS_EXEC=/Users/casatta/github/romanz/electrs/target/release/electrs BITCOIND_EXEC=bitcoind WALLY_DIR=nothing cargo test
+/// launch test wiht env vars eg:
+/// ELECTRS_EXEC=$HOME/github/romanz/electrs/target/release/electrs \
+/// BITCOIND_EXEC=bitcoind \
+/// WALLY_DIR=build-clang/libwally-core/build/lib/ \
+/// cargo test
+
 #[test]
 fn integration_bitcoin() {
+    let mut test_session = setup();
+
+    let node_address = test_session.node_address();
+    test_session.fund(100_000_000);
+    test_session.send_tx(&node_address, 10_000);
+    test_session.send_all(&node_address);
+    test_session.mine_block();
+
+    test_session.stop();
+}
+
+//TODO duplicated why I cannot import?
+pub struct SimpleLogger;
+
+impl log::Log for SimpleLogger {
+    fn enabled(&self, metadata: &Metadata) -> bool {
+        metadata.level() <= log::max_level()
+    }
+
+    fn log(&self, record: &Record) {
+        if self.enabled(record.metadata()) {
+            if record.level() <= LevelFilter::Warn {
+                println!("{} - {}", record.level(), record.args());
+            } else {
+                println!("{}", record.args());
+            }
+        }
+    }
+
+    fn flush(&self) {}
+}
+
+fn setup() -> TestSession {
     let electrs_exec = env::var("ELECTRS_EXEC")
         .expect("env ELECTRS_EXEC pointing to electrs executable is required");
     let bitcoind_exec = env::var("BITCOIND_EXEC")
@@ -55,7 +96,7 @@ fn integration_bitcoin() {
     dbg!(&datadir_arg);
     let rpcport_arg = format!("-rpcport={}", rpc_port);
     dbg!(&rpcport_arg);
-    let mut bitcoind = Command::new(bitcoind_exec)
+    let bitcoind_process = Command::new(bitcoind_exec)
         .arg(datadir_arg)
         .arg(rpcport_arg)
         .arg("-daemon")
@@ -67,7 +108,7 @@ fn integration_bitcoin() {
     // wait bitcoind is ready, use default wallet
     let node: Client = loop {
         thread::sleep(Duration::from_millis(500));
-        assert!(bitcoind.stderr.is_none());
+        assert!(bitcoind_process.stderr.is_none());
         let client_result = Client::new(node_url.clone(), Auth::CookieFile(cookie_file.clone()));
         match client_result {
             Ok(client) => match client.get_blockchain_info() {
@@ -81,7 +122,7 @@ fn integration_bitcoin() {
 
     let electrs_work_dir = TempDir::new("electrs_test").unwrap();
     let electrs_url = "127.0.0.1:60401";
-    let mut electrs_process = Command::new(electrs_exec)
+    let electrs_process = Command::new(electrs_exec)
         .arg("-vvv")
         .arg("--db-dir")
         .arg(format!("{}", electrs_work_dir.path().display()))
@@ -99,7 +140,6 @@ fn integration_bitcoin() {
 
     let node_address = node.get_new_address(None, None).unwrap();
     let blocks = node.generate_to_address(101, &node_address).unwrap();
-    let node_address = node.get_new_address(None, None).unwrap();
     println!("blocks {:?}", &blocks);
 
     let mut electrs = loop {
@@ -122,58 +162,19 @@ fn integration_bitcoin() {
     let mnemonic: Mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about".to_string().into();
     session.login(&mnemonic, None).unwrap();
 
-    //TODO make struct with node, electrs, session
-
-    let mut test_session = TestSession::new(node, electrs, session);
-
-    test_session.fund(100_000_000);
-    test_session.send_tx(&node_address, 10_000);
-    test_session.send_all(&node_address);
-
-    test_session.mine_block();
-
-    test_session.stop();
-    bitcoind.wait().unwrap();
-    electrs_process.kill().unwrap();
-}
-
-//TODO duplicated why I cannot import?
-pub struct SimpleLogger;
-
-impl log::Log for SimpleLogger {
-    fn enabled(&self, metadata: &Metadata) -> bool {
-        metadata.level() <= log::max_level()
+    let status = session.status().unwrap();
+    assert_eq!(status, 9288996555440648771);
+    TestSession {
+        status,
+        node,
+        electrs,
+        session,
+        bitcoind_process,
+        electrs_process,
     }
-
-    fn log(&self, record: &Record) {
-        if self.enabled(record.metadata()) {
-            if record.level() <= LevelFilter::Warn {
-                println!("{} - {}", record.level(), record.args());
-            } else {
-                println!("{}", record.args());
-            }
-        }
-    }
-
-    fn flush(&self) {}
 }
 
 impl TestSession {
-    fn new(
-        node: Client,
-        electrs: electrum_client::Client<ElectrumPlaintextStream>,
-        session: ElectrumSession,
-    ) -> Self {
-        let status = session.status().unwrap();
-        assert_eq!(status, 9288996555440648771);
-        TestSession {
-            status,
-            node,
-            electrs,
-            session,
-        }
-    }
-
     /// wait gdk session status to change (new tx)
     fn wait_status_change(&mut self) {
         loop {
@@ -258,19 +259,23 @@ impl TestSession {
         assert_eq!(initial_height + 1, new_height);
     }
 
-fn check_fee_rate(&self, req_rate: u64, tx_meta: &TransactionMeta) {
-    let transaction: Transaction = deserialize(&hex::decode(&tx_meta.hex).unwrap()).unwrap();
-    let real_rate = tx_meta.fee as f64 / (transaction.get_weight() as f64 / 4.0);
-    let req_rate = req_rate as f64 / 1000.0;
-    let max_perc_diff = 0.90;  // TODO improve fee estimation and decrease this
-    assert!(
-        ((real_rate - req_rate).abs() / real_rate) < max_perc_diff,
-        format!("real_rate:{} req_rate:{}", real_rate, req_rate)
-    ); // percentage difference between fee rate requested vs real fee
-    let relay_fee = self.node.get_network_info().unwrap().relay_fee.as_sat() as f64 / 1000.0;
-    assert!(real_rate > relay_fee, "fee rate is under relay_fee");
-    //TODO check greater than relay fee!
-}
+    fn node_address(&self) -> Address {
+        self.node.get_new_address(None, None).unwrap()
+    }
+
+    fn check_fee_rate(&self, req_rate: u64, tx_meta: &TransactionMeta) {
+        let transaction: Transaction = deserialize(&hex::decode(&tx_meta.hex).unwrap()).unwrap();
+        let real_rate = tx_meta.fee as f64 / (transaction.get_weight() as f64 / 4.0);
+        let req_rate = req_rate as f64 / 1000.0;
+        let max_perc_diff = 0.90; // TODO improve fee estimation and decrease this
+        assert!(
+            ((real_rate - req_rate).abs() / real_rate) < max_perc_diff,
+            format!("real_rate:{} req_rate:{}", real_rate, req_rate)
+        ); // percentage difference between fee rate requested vs real fee
+        let relay_fee = self.node.get_network_info().unwrap().relay_fee.as_sat() as f64 / 1000.0;
+        assert!(real_rate > relay_fee, "fee rate is under relay_fee");
+        //TODO check greater than relay fee!
+    }
 
     /// ask the blockcain tip to electrs
     fn electrs_tip(&mut self) -> usize {
@@ -293,8 +298,10 @@ fn check_fee_rate(&self, req_rate: u64, tx_meta: &TransactionMeta) {
     }
 
     /// stop the bitcoin node in the test session
-    fn stop(&self) {
+    fn stop(&mut self) {
         self.node.stop().unwrap();
+        self.bitcoind_process.wait().unwrap();
+        self.electrs_process.kill().unwrap();
     }
 }
 
