@@ -6,9 +6,10 @@ use gdk_common::mnemonic::Mnemonic;
 use gdk_common::model::*;
 use gdk_common::session::Session;
 use gdk_common::Network;
+use gdk_electrum::error::Error;
 use gdk_electrum::{determine_electrum_url_from_net, ElectrumSession};
 use log::LevelFilter;
-use log::{Metadata, Record};
+use log::{info, Metadata, Record};
 use serde_json::Value;
 use std::net::TcpStream;
 use std::process::Child;
@@ -24,7 +25,7 @@ static LOGGER: SimpleLogger = SimpleLogger;
 struct TestSession {
     node: Client,
     electrs: electrum_client::Client<ElectrumPlaintextStream>,
-    electrs_header : electrum_client::Client<ElectrumPlaintextStream>,
+    electrs_header: electrum_client::Client<ElectrumPlaintextStream>,
     session: ElectrumSession,
     status: u64,
     bitcoind_process: Child,
@@ -48,8 +49,13 @@ fn integration_bitcoin() {
     test_session.send_tx(&node_address, 10_000);
     test_session.send_all(&node_address);
     test_session.mine_block();
+    test_session.send_tx_same_script();
     test_session.fund(100_000_000);
     test_session.send_multi(3, 100_000);
+    test_session.mine_block();
+    test_session.send_fails();
+    test_session.fees();
+    test_session.settings();
 
     test_session.stop();
 }
@@ -197,6 +203,21 @@ impl TestSession {
         }
     }
 
+    fn fees(&mut self) {
+        let fees = self.session.get_fee_estimates().unwrap();
+        let relay_fee = self.node.get_network_info().unwrap().relay_fee.as_sat();
+        assert!(fees.iter().all(|f| f.0 >= relay_fee));
+    }
+
+    fn settings(&mut self) {
+        let mut settings = self.session.get_settings().unwrap();
+        settings.altimeout += 1;
+        self.session.change_settings(
+            &settings).unwrap();
+        let new_settings = self.session.get_settings().unwrap();
+        assert_eq!(settings, new_settings);
+    }
+
     /// fund the gdk session with satoshis from the node
     fn fund(&mut self, satoshi: u64) {
         let initial_satoshis = self.satoshi();
@@ -260,7 +281,7 @@ impl TestSession {
         let init_sat = self.satoshi();
         let mut create_opt = CreateTransaction::default();
         let fee_rate = 1000;
-            create_opt.fee_rate = Some(fee_rate);
+        create_opt.fee_rate = Some(fee_rate);
         let mut addressees = vec![];
         for _ in 0..recipients {
             let address = self.node_address();
@@ -276,19 +297,95 @@ impl TestSession {
         self.check_fee_rate(fee_rate, &signed_tx);
         self.session.broadcast_transaction(&signed_tx.hex).unwrap();
         self.wait_status_change();
-        for el  in addressees {
+        for el in addressees {
             assert_eq!(amount, self.satoshi_addr(&el))
         }
         assert_eq!(init_sat - tx.fee - recipients as u64 * amount, self.satoshi());
+    }
+    
+    
+    /// send a tx, check it spend utxo with the same script_pubkey together
+    fn send_tx_same_script(&mut self) {
+        let init_sat = self.satoshi();
+        assert_eq!(init_sat, 0);
+        
+        let utxo_satoshi = 100_000;
+        let ap = self.session.get_receive_address(&Value::Null).unwrap();
+        let address = Address::from_str(&ap.address).unwrap();
+        client_send_to_address(&self.node, &address, utxo_satoshi);
+        client_send_to_address(&self.node, &address, utxo_satoshi);
+
+        self.wait_status_change();
+        let satoshi = 50_000; // one utxo would be enough
+        let mut create_opt = CreateTransaction::default();
+        let fee_rate = 1000;
+        let address = self.node_address();
+        create_opt.fee_rate = Some(fee_rate);
+        create_opt.addressees.push(AddressAmount {
+            address: address.to_string(),
+            satoshi,
+            asset_tag: None,
+        });
+        let tx = self.session.create_transaction(&mut create_opt).unwrap();
+        let signed_tx = self.session.sign_transaction(&tx).unwrap();
+        self.check_fee_rate(fee_rate, &signed_tx);
+        self.session.broadcast_transaction(&signed_tx.hex).unwrap();
+        self.wait_status_change();
+        let transaction: Transaction = deserialize(&hex::decode(&signed_tx.hex).unwrap()).unwrap();
+        assert_eq!(2, transaction.input.len());
+    }
+
+    /// check send failure reasons
+    fn send_fails(&mut self) {
+        let init_sat = self.satoshi();
+        let mut create_opt = CreateTransaction::default();
+        let fee_rate = 1000;
+        let address = self.node_address();
+        create_opt.fee_rate = Some(fee_rate);
+        create_opt.addressees.push(AddressAmount {
+            address: address.to_string(),
+            satoshi: 0,
+            asset_tag: None,
+        });
+        match self.session.create_transaction(&mut create_opt) {
+            Err(Error::InvalidAmount) => assert!(true),
+            _ => assert!(false),
+        }
+        create_opt.addressees[0].satoshi = init_sat;
+        match self.session.create_transaction(&mut create_opt) {
+            Err(Error::InsufficientFunds) => assert!(true),
+            _ => assert!(false),
+        }
+        create_opt.addressees[0].address = "x".to_string();
+        match self.session.create_transaction(&mut create_opt) {
+            Err(Error::InvalidAddress) => assert!(true),
+            _ => assert!(false),
+        }
+        create_opt.addressees.clear();
+        match self.session.create_transaction(&mut create_opt) {
+            Err(Error::EmptyAddressees) => assert!(true),
+            _ => assert!(false),
+        }
     }
 
     /// mine a block with the node and check if gdk session see the change
     fn mine_block(&mut self) {
         let initial_height = self.electrs_tip();
+        info!("mine_block initial_height {}", initial_height);
         let address = self.node_address();
         self.node.generate_to_address(1, &address).unwrap();
         self.wait_status_change();
-        let new_height = self.electrs_tip();
+        let new_height = loop {
+            // apparently even if gdk session status changed (thus new height come in)
+            // it could happend this is the old height (maybe due to caching) thus we loop wait
+            let new_height = self.electrs_tip();
+            if new_height != initial_height {
+                break new_height;
+            }
+            info!("height still the same");
+            thread::sleep(Duration::from_millis(500));
+        };
+        info!("mine_block new_height {}", new_height);
         assert_eq!(initial_height + 1, new_height);
     }
 
@@ -319,6 +416,7 @@ impl TestSession {
         }
     }
 
+    /// balance of an address
     fn satoshi_addr(&mut self, address: &Address) -> u64 {
         let mut satoshi = 0;
         let balance = self.electrs.script_get_balance(&address.script_pubkey()).unwrap();

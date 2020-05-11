@@ -255,7 +255,7 @@ pub struct TxsResult(pub Vec<TxListItem>);
 
 /// Change to the model of Settings and Pricing structs could break old versions.
 /// You can't remove fields, change fields type and if you add a new field, it must be Option<T>
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct Settings {
     pub unit: String,
     pub required_num_blocks: u32,
@@ -273,7 +273,7 @@ pub struct RefreshAssets {
 }
 
 /// see comment for struct Settings
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct Pricing {
     currency: String,
     exchange: String,
