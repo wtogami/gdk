@@ -20,6 +20,7 @@ use tempdir::TempDir;
 
 static LOGGER: SimpleLogger = SimpleLogger;
 
+#[allow(unused)]
 struct TestSession {
     node: Client,
     electrs: electrum_client::Client<ElectrumPlaintextStream>,
@@ -27,6 +28,8 @@ struct TestSession {
     status: u64,
     bitcoind_process: Child,
     electrs_process: Child,
+    bitcoin_work_dir: TempDir,
+    electrs_work_dir: TempDir,
 }
 
 /// launch test wiht env vars eg:
@@ -171,6 +174,8 @@ fn setup() -> TestSession {
         session,
         bitcoind_process,
         electrs_process,
+        bitcoin_work_dir,
+        electrs_work_dir,
     }
 }
 
