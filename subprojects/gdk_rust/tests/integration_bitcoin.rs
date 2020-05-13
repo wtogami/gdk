@@ -52,6 +52,7 @@ fn integration_bitcoin() {
     test_session.send_tx_same_script();
     test_session.fund(100_000_000);
     test_session.send_multi(3, 100_000);
+    test_session.send_multi(30, 100_000);
     test_session.mine_block();
     test_session.send_fails();
     test_session.fees();
@@ -212,8 +213,7 @@ impl TestSession {
     fn settings(&mut self) {
         let mut settings = self.session.get_settings().unwrap();
         settings.altimeout += 1;
-        self.session.change_settings(
-            &settings).unwrap();
+        self.session.change_settings(&settings).unwrap();
         let new_settings = self.session.get_settings().unwrap();
         assert_eq!(settings, new_settings);
     }
@@ -302,13 +302,12 @@ impl TestSession {
         }
         assert_eq!(init_sat - tx.fee - recipients as u64 * amount, self.satoshi());
     }
-    
-    
+
     /// send a tx, check it spend utxo with the same script_pubkey together
     fn send_tx_same_script(&mut self) {
         let init_sat = self.satoshi();
         assert_eq!(init_sat, 0);
-        
+
         let utxo_satoshi = 100_000;
         let ap = self.session.get_receive_address(&Value::Null).unwrap();
         let address = Address::from_str(&ap.address).unwrap();
