@@ -2,14 +2,14 @@ use std::env;
 mod test_session;
 
 #[test]
-fn integration_bitcoin() {
-    let electrs_exec = env::var("ELECTRS_EXEC")
-        .expect("env ELECTRS_EXEC pointing to electrs executable is required");
-    let node_exec = env::var("BITCOIND_EXEC")
-        .expect("env BITCOIND_EXEC pointing to elementsd executable is required");
+fn integration_liquid() {
+    let electrs_exec = env::var("ELECTRS_LIQUID_EXEC")
+        .expect("env ELECTRS_LIQUID_EXEC pointing to electrs executable is required");
+    let node_exec = env::var("ELEMENTSD_EXEC")
+        .expect("env ELEMENTSD_EXEC pointing to elementsd executable is required");
     env::var("WALLY_DIR").expect("env WALLY_DIR directory containing libwally is required");
 
-    let mut test_session = test_session::setup(false, electrs_exec, node_exec);
+    let mut test_session = test_session::setup(true, electrs_exec, node_exec);
 
     let node_address = test_session.node_getnewaddress();
     test_session.fund(100_000_000);
