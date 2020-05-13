@@ -8,8 +8,9 @@ fn integration_liquid() {
     let node_exec = env::var("ELEMENTSD_EXEC")
         .expect("env ELEMENTSD_EXEC pointing to elementsd executable is required");
     env::var("WALLY_DIR").expect("env WALLY_DIR directory containing libwally is required");
+    let debug = env::var("DEBUG").is_ok();
 
-    let mut test_session = test_session::setup(true, electrs_exec, node_exec);
+    let mut test_session = test_session::setup(true, debug, electrs_exec, node_exec);
 
     let node_address = test_session.node_getnewaddress();
     test_session.fund(100_000_000);

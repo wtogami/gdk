@@ -8,8 +8,9 @@ fn integration_bitcoin() {
     let node_exec = env::var("BITCOIND_EXEC")
         .expect("env BITCOIND_EXEC pointing to elementsd executable is required");
     env::var("WALLY_DIR").expect("env WALLY_DIR directory containing libwally is required");
+    let debug = env::var("DEBUG").is_ok();
 
-    let mut test_session = test_session::setup(false, electrs_exec, node_exec);
+    let mut test_session = test_session::setup(false, debug, electrs_exec, node_exec);
 
     let node_address = test_session.node_getnewaddress();
     test_session.fund(100_000_000);

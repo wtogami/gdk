@@ -11,7 +11,7 @@ use gdk_common::{ElementsNetwork, NetworkId};
 use gdk_electrum::error::Error;
 use gdk_electrum::{determine_electrum_url_from_net, ElectrumSession};
 use log::LevelFilter;
-use log::{info, warn, Metadata, Record};
+use log::{debug, info, warn, Metadata, Record};
 use serde_json::Value;
 use std::net::TcpStream;
 use std::process::Child;
@@ -32,9 +32,10 @@ pub struct TestSession {
     status: u64,
     node_process: Child,
     electrs_process: Child,
-    bitcoin_work_dir: TempDir,
+    node_work_dir: TempDir,
     electrs_work_dir: TempDir,
     network_id: NetworkId,
+    network: Network,
 }
 
 //TODO duplicated why I cannot import?
@@ -58,36 +59,60 @@ impl log::Log for SimpleLogger {
     fn flush(&self) {}
 }
 
-pub fn setup(is_liquid: bool, electrs_exec: String, node_exec: String) -> TestSession {
+pub fn setup(
+    is_liquid: bool,
+    is_debug: bool,
+    electrs_exec: String,
+    node_exec: String,
+) -> TestSession {
+    let filter = if is_debug {
+        LevelFilter::Debug
+    } else {
+        LevelFilter::Off
+    };
     log::set_logger(&LOGGER)
-        .map(|()| log::set_max_level(LevelFilter::Info))
+        .map(|()| log::set_max_level(filter))
         .expect("cannot initialize logging");
 
-    let bitcoin_work_dir = TempDir::new("electrum_integration_tests").unwrap();
-    let sum_port = if is_liquid { 1 } else { 0 };
+    let node_work_dir = TempDir::new("electrum_integration_tests").unwrap();
+    let node_work_dir_str = format!("{}", &node_work_dir.path().display());
+    let sum_port = if is_liquid {
+        1
+    } else {
+        0
+    };
 
-    let rpc_port = 18443u16 + sum_port;
+    let rpc_port = 55363u16 + sum_port;
     let socket = format!("127.0.0.1:{}", rpc_port);
     let node_url = format!("http://{}", socket);
 
     let test = TcpStream::connect(&socket);
     assert!(test.is_err(), "check the port is not open with a previous instance of bitcoind");
 
-    let datadir_arg = format!("-datadir={}", &bitcoin_work_dir.path().display());
+    let datadir_arg = format!("-datadir={}", &node_work_dir.path().display());
     let rpcport_arg = format!("-rpcport={}", rpc_port);
-    let args: &[&str] = &[
-        &datadir_arg,
-        &rpcport_arg,
-        "-daemon",
-        "-chain=liquidregtest",
-        "-validatepegin=0",
-        "-initialfreecoins=2100000000",
-    ];
+    let mut args: Vec<&str> = vec![&datadir_arg, &rpcport_arg];
+    if is_liquid {
+        args.push("-initialfreecoins=2100000000");
+        args.push("-chain=liquidregtest");
+        args.push("-validatepegin=0");
+    } else {
+        args.push("-regtest");
+    };
+    if !is_debug {
+        args.push("-daemon");
+    }
     info!("LAUNCHING: {} {}", node_exec, args.join(" "));
     let node_process = Command::new(node_exec).args(args).spawn().unwrap();
-    println!("Bitcoin spawned");
+    debug!("node spawned");
 
-    let cookie_file = bitcoin_work_dir.path().join("liquidregtest").join(".cookie");
+    let par_network = if is_liquid {
+        "liquidregtest"
+    } else {
+        "regtest"
+    };
+    let cookie_file = node_work_dir.path().join(par_network).join(".cookie");
+    let cookie_file_str = format!("{}", cookie_file.as_path().display());
     // wait bitcoind is ready, use default wallet
     let node: Client = loop {
         thread::sleep(Duration::from_millis(500));
@@ -96,37 +121,45 @@ pub fn setup(is_liquid: bool, electrs_exec: String, node_exec: String) -> TestSe
         match client_result {
             Ok(client) => match client.call::<Value>("getblockchaininfo", &[]) {
                 Ok(_) => break client,
-                Err(e) => println!("{:?}", e),
+                Err(e) => warn!("{:?}", e),
             },
-            Err(e) => println!("{:?}", e),
+            Err(e) => warn!("{:?}", e),
         }
     };
-    println!("Bitcoin started");
+    debug!("Bitcoin started");
     let cookie_value = std::fs::read_to_string(&cookie_file).unwrap();
 
     let electrs_port = 62431u16 + sum_port;
     let electrs_work_dir = TempDir::new("electrum_integration_tests").unwrap();
+    let electrs_work_dir_str = format!("{}", &electrs_work_dir.path().display());
     let electrs_url = format!("127.0.0.1:{}", electrs_port);
     let daemon_url = format!("127.0.0.1:{}", rpc_port);
-    let args: &[&str] = &[
-        "-v",
+    let mut args: Vec<&str> = vec![
         "--db-dir",
-        &format!("{}", &electrs_work_dir.path().display()),
+        &electrs_work_dir_str,
         "--daemon-dir",
-        &format!("{}", &bitcoin_work_dir.path().display()),
+        &node_work_dir_str,
         "--electrum-rpc-addr",
         &electrs_url,
         "--daemon-rpc-addr",
         &daemon_url,
-        "--cookie",
-        &cookie_value,
         "--network",
-        "liquidregtest",
+        par_network,
     ];
+    if is_liquid {
+        args.push("--cookie");
+        args.push(&cookie_value);
+    } else {
+        args.push("--cookie-file");
+        args.push(&cookie_file_str);
+    };
+    if is_debug {
+        args.push("-v");
+    }
 
     info!("LAUNCHING: {} {}", electrs_exec, args.join(" "));
     let electrs_process = Command::new(electrs_exec).args(args).spawn().unwrap();
-    println!("Electrs spawned");
+    debug!("Electrs spawned");
 
     node_generate(&node, 101);
 
@@ -148,15 +181,18 @@ pub fn setup(is_liquid: bool, electrs_exec: String, node_exec: String) -> TestSe
     let mut network = Network::default();
     network.url = Some(electrs_url.to_string());
     network.sync_interval = Some(1);
-    network.liquid = true;
-    network.development = true;
-    network.policy_asset =
-        Some("5ac9f65c0efcc4775e0baec4ec03abdde22473cd3cf33c0419ca290e0751b225".into());
-    let db_root = format!("{}", TempDir::new("electrum_integration_tests").unwrap().path().display());
+    if is_liquid {
+        network.liquid = true;
+        network.development = true;
+        network.policy_asset =
+            Some("5ac9f65c0efcc4775e0baec4ec03abdde22473cd3cf33c0419ca290e0751b225".into());
+    }
+    let db_root =
+        format!("{}", TempDir::new("electrum_integration_tests").unwrap().path().display());
     let url = determine_electrum_url_from_net(&network).unwrap();
 
     info!("creating gdk session");
-    let mut session = ElectrumSession::create_session(network, &db_root, url);
+    let mut session = ElectrumSession::create_session(network.clone(), &db_root, url);
 
     let mnemonic: Mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about".to_string().into();
     info!("logging in gdk session");
@@ -179,9 +215,10 @@ pub fn setup(is_liquid: bool, electrs_exec: String, node_exec: String) -> TestSe
         session,
         node_process,
         electrs_process,
-        bitcoin_work_dir,
+        node_work_dir,
         electrs_work_dir,
         network_id,
+        network,
     }
 }
 
@@ -256,7 +293,7 @@ impl TestSession {
         create_opt.addressees.push(AddressAmount {
             address: address.to_string(),
             satoshi,
-            asset_tag: None,
+            asset_tag: self.asset_tag(),
         });
         let tx = self.session.create_transaction(&mut create_opt).unwrap();
         let signed_tx = self.session.sign_transaction(&tx).unwrap();
@@ -281,7 +318,7 @@ impl TestSession {
             create_opt.addressees.push(AddressAmount {
                 address: address.to_string(),
                 satoshi: amount,
-                asset_tag: None,
+                asset_tag: self.asset_tag(),
             });
             addressees.push(address);
         }
@@ -448,6 +485,13 @@ impl TestSession {
         Amount::from_btc(val).unwrap().as_sat()
     }
 
+    fn asset_tag(&self) -> Option<String> {
+        match self.network_id {
+            NetworkId::Bitcoin(_) => None,
+            NetworkId::Elements(_) => self.network.policy_asset.clone(),
+        }
+    }
+
     /// balance in satoshi of the gdk session
     fn balance_gdk(&self) -> u64 {
         let balance = self.session.get_balance(0, None).unwrap();
@@ -468,7 +512,7 @@ fn node_sendtoaddress(client: &Client, address: &str, satoshi: u64) {
     let btc = amount.to_string_in(bitcoin::util::amount::Denomination::Bitcoin);
     info!("node_sendtoaddress {} {}", address, btc);
     let r = client.call::<Value>("sendtoaddress", &[address.into(), btc.into()]).unwrap();
-    dbg!(r);
+    debug!("node_sendtoaddress result {:?}", r);
 }
 
 fn node_getnewaddress(client: &Client) -> String {
@@ -479,5 +523,5 @@ fn node_getnewaddress(client: &Client) -> String {
 fn node_generate(client: &Client, block_num: u32) {
     let address = node_getnewaddress(client);
     let r = client.call::<Value>("generatetoaddress", &[block_num.into(), address.into()]).unwrap();
-    dbg!(r);
+    debug!("generate result {:?}", r);
 }
