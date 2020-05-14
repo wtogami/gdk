@@ -43,8 +43,32 @@ impl Unblinded {
     }
 
     pub fn asset_hex(&self) -> String {
-        let mut asset = self.asset.to_vec();
-        asset.reverse();
-        hex::encode(asset)
+        asset_to_hex(&self.asset)
+    }
+}
+
+pub fn asset_to_bin(asset: &str) -> Result<AssetId, crate::error::Error> {
+    let mut bytes = hex::decode(asset)?;
+    bytes.reverse();
+    let asset: AssetId = (&bytes[..]).try_into()?;
+    Ok(asset)
+}
+
+pub fn asset_to_hex(asset: &[u8]) -> String {
+    let mut asset = asset.to_vec();
+    asset.reverse();
+    hex::encode(asset)
+}
+
+
+#[cfg(test)]
+mod tests {
+    use crate::be::{asset_to_bin, asset_to_hex};
+
+    #[test]
+    fn test_asset_roundtrip() {
+        let expected = "5ac9f65c0efcc4775e0baec4ec03abdde22473cd3cf33c0419ca290e0751b225";
+        let result = asset_to_hex(&asset_to_bin(expected).unwrap());
+        assert_eq!(expected, &result);
     }
 }
