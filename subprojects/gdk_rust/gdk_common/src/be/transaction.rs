@@ -268,6 +268,7 @@ impl BETransaction {
     /// requires inputs are greater than outputs for earch asset
     pub fn changes(
         &self,
+        estimated_fee: u64,
         policy_asset: Option<String>,
         all_txs: &BETransactions,
         all_unblinded: &HashMap<elements::OutPoint, Unblinded>,
@@ -276,7 +277,7 @@ impl BETransaction {
             Self::Bitcoin(tx) => {
                 let sum_inputs= sum_inputs(tx, all_txs);
                 let sum_outputs: u64 = tx.output.iter().map(|o| o.value).sum();
-                let change_value = sum_inputs - sum_outputs;
+                let change_value = sum_inputs - sum_outputs - estimated_fee;
                 if change_value > 546 {
                     vec![AssetValue::new_bitcoin(change_value)]
                 } else {
@@ -303,16 +304,16 @@ impl BETransaction {
                 }
                 let mut result = vec![];
                 for (asset,value) in inputs.iter() {
-                    let sum = value - outputs.remove(asset).unwrap_or(0);
-                    let min_change = if asset == policy_asset.as_ref().unwrap() {
+                    let mut sum = value - outputs.remove(asset).unwrap_or(0);
+                    if asset == policy_asset.as_ref().unwrap() {
                         // from a purely privacy perspective could make sense to always create the change output in liquid, so min change = 0
                         // however elements core use the dust anyway for 2 reasons: rebasing from core and economical considerations
                         // another reason, specific to this wallet, is that the send_all algorithm could reason in steps greater than 1, making it not too slow
-                        546
+                        sum -= estimated_fee;
+                        if sum > 546 {
+                            result.push(AssetValue::new(asset.to_string(), sum));
+                        }
                     } else {
-                        0
-                    };
-                    if sum > min_change {
                         result.push(AssetValue::new(asset.to_string(),sum));
                     }
                 }

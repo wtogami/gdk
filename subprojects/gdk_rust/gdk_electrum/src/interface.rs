@@ -384,7 +384,8 @@ impl WalletCtx {
         }
 
         // STEP 3) adding change(s)
-        let changes = tx.changes(self.network.policy_asset.clone(), &wallet_data.all_txs, &wallet_data.all_unblinded); // Vec<Change> asset, value
+        let estimated_fee = tx.estimated_fee(fee_rate);
+        let changes = tx.changes(estimated_fee, self.network.policy_asset.clone(), &wallet_data.all_txs, &wallet_data.all_unblinded); // Vec<Change> asset, value
         for (i,change) in changes.iter().enumerate() {
             let change_index = self.db.get_index(Index::Internal)? + i as u32 + 1;
             let change_address = self.derive_address(&self.xpub, &[1, change_index])?.to_string();
