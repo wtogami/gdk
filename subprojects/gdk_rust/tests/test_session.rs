@@ -492,11 +492,15 @@ impl TestSession {
         }
     }
 
-    /// balance in satoshi of the gdk session
+    /// balance in satoshi (or liquid satoshi) of the gdk session
     fn balance_gdk(&self) -> u64 {
         let balance = self.session.get_balance(0, None).unwrap();
         info!("balance: {:?}", balance);
-        *balance.get("btc").unwrap() as u64
+        match self.network_id {
+            NetworkId::Elements(_) => *balance.get(self.network.policy_asset.as_ref().unwrap()).unwrap() as u64,
+            NetworkId::Bitcoin(_) => *balance.get("btc").unwrap() as u64,
+        }
+        
     }
 
     /// stop the bitcoin node in the test session
