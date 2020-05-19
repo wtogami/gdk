@@ -289,7 +289,8 @@ impl WalletCtx {
 
         if send_all {
             // send_all works by creating a dummy tx with all utxos, estimate the fee and set the
-            // sending amount to `total_amount_utxos - estimated_fee`
+            // sending amount to `total_amount_utxos - estimated_fee` if it's an asset != lbtc then
+            // `estimated_fee` is not subtracted
             info!("send_all calculating total_amount");
             if request.addressees.len() != 1 {
                 return Err(Error::SendAll);
@@ -297,13 +298,17 @@ impl WalletCtx {
             let asset = request.addressees[0].asset_tag.as_deref().unwrap_or("btc");
             let all_utxos: Vec<&(BEOutPoint, UTXOInfo)> = utxos.iter().filter(|(_, i)| i.asset == asset).collect();
             let total_amount_utxos: u64 = all_utxos.iter().map(|(_, i)| i.value).sum();
-            let mut dummy_tx = BETransaction::new(self.network.id());
-            for utxo in all_utxos.iter() {
-                dummy_tx.add_input(utxo.0.clone());
+            if asset == "btc" || Some(&asset.to_string()) == self.network.policy_asset.as_ref() {
+                let mut dummy_tx = BETransaction::new(self.network.id());
+                for utxo in all_utxos.iter() {
+                    dummy_tx.add_input(utxo.0.clone());
+                }
+                let estimated_fee = dummy_tx.estimated_fee(fee_rate, 1) + 3;  // estimating 3 satoshi more as estimating less would later result in InsufficientFunds
+                info!("send_all asset: {} total_amount:{} utxos:{} estimated_fee:{}", asset, total_amount_utxos, all_utxos.len(), estimated_fee);
+                request.addressees[0].satoshi = total_amount_utxos - estimated_fee;
+            } else {
+                request.addressees[0].satoshi = total_amount_utxos
             }
-            let estimated_fee = dummy_tx.estimated_fee(fee_rate, 1) + 3;  // estimating 3 satoshi more as estimating less would later result in InsufficientFunds
-            info!("send_all asset: {} total_amount:{} utxos:{} estimated_fee:{}", asset, total_amount_utxos, all_utxos.len(), estimated_fee);
-            request.addressees[0].satoshi = total_amount_utxos - estimated_fee;
         }
 
         let mut tx = BETransaction::new(self.network.id());

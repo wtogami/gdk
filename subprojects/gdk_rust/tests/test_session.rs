@@ -1,7 +1,7 @@
 use bitcoin::{self, Amount};
 use bitcoincore_rpc::{Auth, Client, RpcApi};
 use electrum_client::client::ElectrumPlaintextStream;
-use elements;
+use elements::{self, confidential};
 use gdk_common::be::{BEAddress, BETransaction};
 use gdk_common::mnemonic::Mnemonic;
 use gdk_common::model::*;
@@ -256,7 +256,8 @@ impl TestSession {
         assert_eq!(settings, new_settings);
     }
 
-    /// fund the gdk session with satoshis from the node, if on liquid issue `assets_to_issue` assets
+    /// fund the gdk session with satoshis from the node
+    /// if on liquid issue `assets_to_issue` assets with quantity `satoshi` and send half to gdk
     pub fn fund(&mut self, satoshi: u64, assets_to_issue: Option<u8>) -> Vec<String> {
         let initial_satoshis = self.balance_gdk(None);
         let ap = self.session.get_receive_address(&Value::Null).unwrap();
@@ -266,7 +267,7 @@ impl TestSession {
 
         for _ in 0..assets_to_issue.unwrap_or(0) {
             let asset = self.node_issueasset(satoshi);
-            self.node_sendtoaddress(&ap.address, satoshi, Some(asset.clone()));
+            self.node_sendtoaddress(&ap.address, satoshi / 2, Some(asset.clone()));
             self.wait_status_change();
             assets_issued.push(asset);
         }
@@ -294,6 +295,8 @@ impl TestSession {
         self.check_fee_rate(fee_rate, &signed_tx, MAX_FEE_PERCENT_DIFF);
         self.session.broadcast_transaction(&signed_tx.hex).unwrap();
         self.wait_status_change();
+        self.tx_checks(&signed_tx.hex);
+
         //let end_sat_addr = self.balance_addr(address);
         //assert_eq!(init_sat_addr + init_sat - tx.fee, end_sat_addr);
         assert_eq!(self.balance_gdk(asset_tag), 0);
@@ -380,15 +383,23 @@ impl TestSession {
     }
 
     /// send a tx, check it spend utxo with the same script_pubkey together
-    pub fn send_tx_same_script(&mut self) {
-        // TODO check same script for different assets
+    /// requires initial balance 0 so that I know wich UTXO are taken
+    /// if asset is Some is used as one of the 2 UTXO to check if same script are spent even if is a different asset
+    pub fn send_tx_same_script(&mut self, asset: Option<String>) {
         let init_sat = self.balance_gdk(None);
         assert_eq!(init_sat, 0);
+        let first = if asset.is_some() {
+            let init_sat_asset = self.balance_gdk(asset.clone());
+            assert_eq!(init_sat_asset, 0);
+            asset
+        }  else {
+            self.asset_tag()
+        };
 
         let utxo_satoshi = 100_000;
         let ap = self.session.get_receive_address(&Value::Null).unwrap();
-        self.node_sendtoaddress(&ap.address, utxo_satoshi, None);
-        self.node_sendtoaddress(&ap.address, utxo_satoshi, None);
+        self.node_sendtoaddress(&ap.address, utxo_satoshi, first.clone() );
+        self.node_sendtoaddress(&ap.address, utxo_satoshi, self.asset_tag() );
 
         self.wait_status_change();
         let satoshi = 50_000; // one utxo would be enough
@@ -399,7 +410,7 @@ impl TestSession {
         create_opt.addressees.push(AddressAmount {
             address: address.to_string(),
             satoshi,
-            asset_tag: self.asset_tag(),
+            asset_tag: first,
         });
         let tx = self.session.create_transaction(&mut create_opt).unwrap();
         let signed_tx = self.session.sign_transaction(&tx).unwrap();
@@ -451,8 +462,21 @@ impl TestSession {
             NetworkId::Elements(_) => {
                 let tx: elements::Transaction =
                     elements::encode::deserialize(&hex::decode(hex).unwrap()).unwrap();
+
+                assert!(tx.output.last().unwrap().is_fee(), "last output is not a fee");
+
                 let output_nofee: Vec<&elements::TxOut> =
                     tx.output.iter().filter(|o| !o.is_fee()).collect();
+
+                // check all output but the fee are confidential
+                for output in output_nofee.iter() {
+                    match (output.asset, output.value, output.nonce) {
+                        (confidential::Asset::Confidential(_,_), confidential::Value::Confidential(_,_), confidential::Nonce::Confidential(_,_)) => assert!(true),
+                        _ => assert!(false, "not everything is confidential"),
+                    }
+                }
+
+                // check that all outputs are different (eg address reuse or same asset commitment)
                 for current in output_nofee.iter() {
                     assert_eq!(
                         1,
@@ -478,7 +502,6 @@ impl TestSession {
                         "nonce commitment equal"
                     );
                 }
-                assert!(tx.output.last().unwrap().is_fee(), "last output is not a fee");
 
             }
             NetworkId::Bitcoin(_) => {
@@ -616,7 +639,7 @@ impl TestSession {
             NetworkId::Elements(_) => {
                 let asset =
                     asset.unwrap_or(self.network.policy_asset.as_ref().unwrap().to_string());
-                *balance.get(&asset).unwrap() as u64
+                *balance.get(&asset).unwrap_or(&0i64) as u64
             }
             NetworkId::Bitcoin(_) => *balance.get("btc").unwrap() as u64,
         }

@@ -375,16 +375,17 @@ impl BETransaction {
                 let mut result = vec![];
                 for (asset,value) in inputs.iter() {
                     let mut sum = value - outputs.remove(asset).unwrap_or(0);
-                    if asset == policy_asset.as_ref().unwrap() {
-                        // from a purely privacy perspective could make sense to always create the change output in liquid, so min change = 0
-                        // however elements core use the dust anyway for 2 reasons: rebasing from core and economical considerations
-                        // another reason, specific to this wallet, is that the send_all algorithm could reason in steps greater than 1, making it not too slow
-                        sum -= estimated_fee;
-                        if sum > 546 {
+                    if sum > 0 {
+                        if asset == policy_asset.as_ref().unwrap() {
+                            // from a purely privacy perspective could make sense to always create the change output in liquid, so min change = 0
+                            // however elements core use the dust anyway for 2 reasons: rebasing from core and economical considerations
+                            sum -= estimated_fee;
+                            if sum > 546 {
+                                result.push(AssetValue::new(asset.to_string(), sum));
+                            }
+                        } else {
                             result.push(AssetValue::new(asset.to_string(), sum));
                         }
-                    } else {
-                        result.push(AssetValue::new(asset.to_string(),sum));
                     }
                 }
                 assert!(outputs.is_empty());

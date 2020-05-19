@@ -19,7 +19,7 @@ fn bitcoin() {
     test_session.send_tx(&node_bech32_address, 10_000, None);
     test_session.send_all(&node_address, None);
     test_session.mine_block();
-    test_session.send_tx_same_script();
+    test_session.send_tx_same_script(None);
     test_session.fund(100_000_000, None);
     test_session.send_multi(3, 100_000, vec![]);
     test_session.send_multi(30, 100_000, vec![]);
@@ -46,12 +46,15 @@ fn liquid() {
     let node_bech32_address = test_session.node_getnewaddress(Some("bech32"));
 
     let assets = test_session.fund(100_000_000, Some(1));
+    let issued_asset = Some(assets[0].clone());
     test_session.send_tx(&node_address, 10_000, None);
     test_session.send_tx(&node_bech32_address, 10_000, None);
-    test_session.send_tx(&node_address, 10_000, Some(assets[0].clone()));
+    test_session.send_tx(&node_address, 10_000, issued_asset.clone());
+    test_session.send_all(&node_address, issued_asset.clone());
     test_session.send_all(&node_address, test_session.asset_tag());
+    test_session.send_tx_same_script(issued_asset.clone());
     test_session.mine_block();
-    test_session.send_tx_same_script();
+
     let assets = test_session.fund(100_000_000, Some(3));
     test_session.send_multi(3, 100_000, vec![]);
     test_session.send_multi(30, 100_000 , assets);
