@@ -20,7 +20,7 @@ use bitcoin::util::bip32::{DerivationPath, ExtendedPrivKey, ExtendedPubKey};
 use bitcoin::Txid;
 use sled::Batch;
 
-use electrum_client::{GetHistoryRes, GetMerkleRes, GetHeadersRes};
+use electrum_client::{GetHeadersRes, GetHistoryRes, GetMerkleRes};
 use gdk_common::be::*;
 use gdk_common::mnemonic::Mnemonic;
 use gdk_common::model::*;
@@ -158,7 +158,11 @@ impl ClientWrap {
         })
     }
 
-    pub fn transaction_get_merkle(&mut self, txid: &Txid, height: usize) -> Result<GetMerkleRes, Error> {
+    pub fn transaction_get_merkle(
+        &mut self,
+        txid: &Txid,
+        height: usize,
+    ) -> Result<GetMerkleRes, Error> {
         Ok(match self {
             ClientWrap::Plain(client) => client.transaction_get_merkle(txid, height)?,
             ClientWrap::Tls(client) => client.transaction_get_merkle(txid, height)?,
@@ -176,20 +180,12 @@ impl ClientWrap {
         })
     }
 
-
-    pub fn block_header_raw(
-        &mut self,
-        height: usize,
-
-    ) -> Result<Vec<u8>, Error> {
+    pub fn block_header_raw(&mut self, height: usize) -> Result<Vec<u8>, Error> {
         Ok(match self {
             ClientWrap::Plain(client) => client.block_header_raw(height)?,
             ClientWrap::Tls(client) => client.block_header_raw(height)?,
         })
     }
-
-
-
 }
 
 pub struct Syncer<S: Read + Write> {
