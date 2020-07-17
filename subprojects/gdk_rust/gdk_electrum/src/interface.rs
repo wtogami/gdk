@@ -21,6 +21,8 @@ use gdk_common::wally::*;
 use crate::db::*;
 use crate::error::*;
 
+use electrum_client::raw_client::RawClient;
+use electrum_client::Client;
 use elements::confidential::{Asset, Nonce, Value};
 use gdk_common::be::*;
 use std::collections::{HashMap, HashSet};
@@ -43,6 +45,21 @@ pub struct WalletCtx {
 pub enum ElectrumUrl {
     Tls(String, bool),
     Plaintext(String),
+}
+
+impl ElectrumUrl {
+    pub fn build_client(&self) -> Result<Client, Error> {
+        match self {
+            ElectrumUrl::Tls(url, validate) => {
+                let client = RawClient::new_ssl(url.as_str(), *validate)?;
+                Ok(Client::SSL(client))
+            }
+            ElectrumUrl::Plaintext(url) => {
+                let client = RawClient::new(&url)?;
+                Ok(Client::TCP(client))
+            }
+        }
+    }
 }
 
 impl WalletCtx {
