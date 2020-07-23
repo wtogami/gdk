@@ -1007,11 +1007,12 @@ impl Syncer {
             let txs_bytes_downloaded = self.client.batch_transaction_get_raw(txs_to_download)?;
             let mut txs_downloaded: Vec<BETransaction> = vec![];
             for vec in txs_bytes_downloaded {
-                txs_downloaded.push(BETransaction::deserialize(&vec, self.network.id())?);
+                let tx = BETransaction::deserialize(&vec, self.network.id())?;
+                txs_downloaded.push(tx);
             }
             info!("txs_downloaded {:?}", txs_downloaded.len());
             let mut previous_txs_to_download = HashSet::new();
-            for tx in txs_downloaded.into_iter() {
+            for mut tx in txs_downloaded.into_iter() {
                 let txid = tx.txid();
                 txs_in_db.insert(txid);
 
@@ -1038,6 +1039,7 @@ impl Syncer {
                         previous_txs_to_download.insert(previous_txid);
                     }
                 }
+                tx.strip_witness();
                 txs.push((txid, tx));
             }
 
@@ -1047,7 +1049,8 @@ impl Syncer {
                 let txs_bytes_downloaded =
                     self.client.batch_transaction_get_raw(txs_to_download)?;
                 for vec in txs_bytes_downloaded {
-                    let tx = BETransaction::deserialize(&vec, self.network.id())?;
+                    let mut tx = BETransaction::deserialize(&vec, self.network.id())?;
+                    tx.strip_witness();
                     txs.push((tx.txid(), tx));
                 }
             }
