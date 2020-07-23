@@ -9,7 +9,7 @@ use bitcoin::{PublicKey, SigHashType, Txid};
 use elements;
 use gdk_common::model::{AddressAmount, Balances, GetTransactionsOpt};
 use hex;
-use log::{debug, info};
+use log::{info, trace};
 use rand::Rng;
 
 use gdk_common::mnemonic::Mnemonic;
@@ -148,19 +148,20 @@ impl WalletCtx {
         });
 
         for (tx_id, height) in my_txids.iter().skip(opt.first).take(opt.count) {
-            debug!("tx_id {}", tx_id);
+            trace!("tx_id {}", tx_id);
 
             let tx = store_read
                 .all_txs
                 .get(*tx_id)
                 .ok_or_else(fn_err(&format!("list_tx no tx {}", tx_id)))?;
             let header = height.map(|h| store_read.headers.get(&h)).flatten();
-
+            trace!("tx_id {} header {:?}", tx_id, header);
             let mut addressees = vec![];
             for i in 0..tx.output_len() as u32 {
                 let script = tx.output_script(i);
                 if !script.is_empty() && !store_read.paths.contains_key(&script) {
                     let address = tx.output_address(i, self.network.id());
+                    trace!("tx_id {}:{} not my script, address {:?}", tx_id, i, address);
                     addressees.push(AddressAmount {
                         address: address.unwrap_or_else(|| "".to_string()),
                         satoshi: 0, // apparently not needed in list_tx addressees
@@ -174,8 +175,11 @@ impl WalletCtx {
             };
 
             let fee = tx.fee(&store_read.all_txs, &store_read.unblinded);
+            trace!("tx_id {} fee {}", tx_id, fee);
             let satoshi =
                 tx.my_balances(&store_read.all_txs, &store_read.paths, &store_read.unblinded);
+
+            trace!("tx_id {} balances {:?}", tx_id, satoshi);
 
             let negatives = satoshi.iter().filter(|(_, v)| **v < 0).count();
             let positives = satoshi.iter().filter(|(_, v)| **v > 0).count();
@@ -188,6 +192,10 @@ impl WalletCtx {
                 (false, false) => ("outgoing", true),
             };
             let spv_verified = store_read.txs_verif.contains(*tx_id);
+            trace!(
+                "tx_id {} type {} user_signed {} spv_verified {}",
+                tx_id, type_, user_signed, spv_verified
+            );
 
             let tx_meta = TransactionMeta::new(
                 tx.clone(),
@@ -772,16 +780,16 @@ impl WalletCtx {
                             ct_exp,
                             ct_bits,
                         );
-                        debug!("asset: {}", hex::encode(&asset));
-                        debug!("output_abf: {}", hex::encode(&output_abf));
-                        debug!(
+                        trace!("asset: {}", hex::encode(&asset));
+                        trace!("output_abf: {}", hex::encode(&output_abf));
+                        trace!(
                             "output_generator: {}",
                             hex::encode(&elements::encode::serialize(&output_generator))
                         );
-                        debug!("input_assets: {}", hex::encode(&input_assets));
-                        debug!("input_abfs: {}", hex::encode(&input_abfs));
-                        debug!("input_ags: {}", hex::encode(&input_ags));
-                        debug!("in_num: {}", in_num);
+                        trace!("input_assets: {}", hex::encode(&input_assets));
+                        trace!("input_abfs: {}", hex::encode(&input_abfs));
+                        trace!("input_ags: {}", hex::encode(&input_ags));
+                        trace!("in_num: {}", in_num);
 
                         let surjectionproof = asset_surjectionproof(
                             asset,
@@ -793,7 +801,7 @@ impl WalletCtx {
                             &input_ags,
                             in_num,
                         );
-                        debug!("surjectionproof: {}", hex::encode(&surjectionproof));
+                        trace!("surjectionproof: {}", hex::encode(&surjectionproof));
 
                         let bytes = blinding_public_key.serialize();
                         let byte32: [u8; 32] = bytes[1..].as_ref().try_into().unwrap();
