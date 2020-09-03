@@ -56,8 +56,19 @@ else
 cat > $2 << EOF
 
 [binaries]
-c = '$C_COMPILER'
-cpp = '$CXX_COMPILER'
+EOF
+if [ \( "$CCACHE" = "" \) ]; then
+cat >> $2 << EOF
+c = ['$C_COMPILER']
+cpp = ['$CXX_COMPILER']
+EOF
+else
+cat >> $2 << EOF
+c = ['$CCACHE', '$C_COMPILER']
+cpp = ['$CCACHE', '$CXX_COMPILER']
+EOF
+fi
+cat >> $2 << EOF
 ar = '$AR'
 pkgconfig = 'pkg-config'
 strip = '$STRIP'

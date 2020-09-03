@@ -1,1 +1,1 @@
-meson==0.51.2 --hash=sha256:99ef00d314cc0cc5ae92176f6d0681ebd4e9e4cace6fb96adfab86a5969c1033
+meson==0.55.1 --hash=sha256:3b5741f884e04928bdfa1947467ff06afa6c98e623c25cef75adf71ca39ce080
