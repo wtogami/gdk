@@ -1852,6 +1852,9 @@ namespace sdk {
             balance[key] = satoshi;
         }
 
+        balance[m_net_params.policy_asset()] = balance.at("btc");
+        balance.erase("btc");
+
         return balance;
     }
 
