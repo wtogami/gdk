@@ -57,6 +57,14 @@ impl Unblinded {
     pub fn asset_hex(&self) -> String {
         asset_to_hex(&self.asset)
     }
+
+    pub fn assetblinder_hex(&self) -> String {
+        asset_to_hex(&self.abf)
+    }
+
+    pub fn amountblinder_hex(&self) -> String {
+        asset_to_hex(&self.vbf)
+    }
 }
 
 impl Debug for Unblinded {
