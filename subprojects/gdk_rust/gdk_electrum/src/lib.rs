@@ -211,46 +211,6 @@ fn try_get_fee_estimates(client: &Client) -> Result<Vec<FeeEstimate>, Error> {
     Ok(estimates)
 }
 
-fn make_txlist_item(tx: &TransactionMeta) -> TxListItem {
-    let type_ = tx.type_.clone();
-    let len = tx.hex.len() / 2;
-    let fee_rate = (tx.fee as f64 / len as f64) as u64;
-    let addressees = tx
-        .create_transaction
-        .as_ref()
-        .unwrap()
-        .addressees
-        .iter()
-        .map(|e| e.address.clone())
-        .collect();
-
-    TxListItem {
-        block_height: tx.height.unwrap_or_default(),
-        created_at: tx.created_at.clone(),
-        type_,
-        memo: tx.create_transaction.as_ref().and_then(|c| c.memo.clone()).unwrap_or("".to_string()),
-        txhash: tx.txid.clone(),
-        transaction_size: len,
-        transaction: tx.hex.clone(), // FIXME
-        satoshi: tx.satoshi.clone(),
-        rbf_optin: tx.rbf_optin, // TODO: TransactionMeta -> TxListItem rbf_optin
-        cap_cpfp: false,         // TODO: TransactionMeta -> TxListItem cap_cpfp
-        can_rbf: false,          // TODO: TransactionMeta -> TxListItem can_rbf
-        has_payment_request: false, // TODO: TransactionMeta -> TxListItem has_payment_request
-        server_signed: false,    // TODO: TransactionMeta -> TxListItem server_signed
-        user_signed: tx.user_signed,
-        spv_verified: tx.spv_verified.to_string(),
-        instant: false,
-        fee: tx.fee,
-        fee_rate,
-        addressees,              // notice the extra "e" -- its intentional
-        inputs: vec![],          // tx.input.iter().map(format_gdk_input).collect(),
-        outputs: vec![],         //tx.output.iter().map(format_gdk_output).collect(),
-        transaction_vsize: len,  //TODO
-        transaction_weight: len, //TODO
-    }
-}
-
 impl Session<Error> for ElectrumSession {
     // type Value = ElectrumSession;
 
@@ -631,8 +591,12 @@ impl Session<Error> for ElectrumSession {
     }
 
     fn get_transactions(&self, opt: &GetTransactionsOpt) -> Result<TxsResult, Error> {
-        let txs = self.get_wallet()?.list_tx(opt)?.iter().map(make_txlist_item).collect();
-
+        let all_txs = &self.get_wallet()?.store.read()?.cache.all_txs;
+        let all_unblinded = &self.get_wallet()?.store.read()?.cache.unblinded;
+        let mut txs: Vec<TxListItem> = vec![];
+        for tx in self.get_wallet()?.list_tx(opt)? {
+            txs.push(tx.make_txlist_item(all_txs, all_unblinded, self.network.id())?);
+        }
         Ok(TxsResult(txs))
     }
 

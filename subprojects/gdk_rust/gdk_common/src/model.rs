@@ -1,4 +1,4 @@
-use crate::be::{AssetId, BEOutPoint, BETransaction, UTXOInfo, Utxos};
+use crate::be::{AssetId, BEOutPoint, BETransaction, BETransactions, UTXOInfo, Unblinded, Utxos};
 use bitcoin::hashes::hex::{FromHex, ToHex};
 use bitcoin::{Network, Script, Txid};
 use core::mem::transmute;
@@ -231,6 +231,98 @@ impl TransactionMeta {
         wgtx.user_signed = user_signed;
         wgtx.spv_verified = spv_verified;
         wgtx
+    }
+
+    fn transaction(&self, network_id: crate::network::NetworkId) -> Result<BETransaction, Error> {
+        Ok(BETransaction::from_hex(&self.hex, network_id)?)
+    }
+
+    pub fn make_txlist_item(
+        &self,
+        all_txs: &BETransactions,
+        all_unblinded: &HashMap<elements::OutPoint, Unblinded>,
+        network_id: crate::network::NetworkId,
+    ) -> Result<TxListItem, Error> {
+        let type_ = self.type_.clone();
+        let len = self.hex.len() / 2;
+        let fee_rate = (self.fee as f64 / len as f64) as u64;
+        let addressees = self
+            .create_transaction
+            .as_ref()
+            .unwrap()
+            .addressees
+            .iter()
+            .map(|e| e.address.clone())
+            .collect();
+
+        let transaction = self.transaction(network_id)?;
+        let inputs = transaction
+            .previous_outputs()
+            .iter()
+            .enumerate()
+            .map(|(vin, i)| {
+                let mut a = AddressIO::default();
+                a.pt_idx = vin as u32;
+                a.satoshi = all_txs.get_previous_output_value(i, all_unblinded).unwrap_or_default();
+                if let BEOutPoint::Elements(outpoint) = i {
+                    a.asset_id = all_txs
+                        .get_previous_output_asset_hex(*outpoint, all_unblinded)
+                        .unwrap_or_default();
+                    a.assetblinder = all_txs
+                        .get_previous_output_assetblinder_hex(*outpoint, all_unblinded)
+                        .unwrap_or_default();
+                    a.amountblinder = all_txs
+                        .get_previous_output_amountblinder_hex(*outpoint, all_unblinded)
+                        .unwrap_or_default();
+                }
+                a
+            })
+            .collect();
+
+        let mut outputs: Vec<AddressIO> = vec![];
+        for vout in 0..transaction.output_len() as u32 {
+            let mut a = AddressIO::default();
+            a.pt_idx = vout;
+            a.satoshi = transaction.output_value(vout, all_unblinded).unwrap_or_default();
+            if let BETransaction::Elements(_) = transaction {
+                a.asset_id = transaction.output_asset_hex(vout, all_unblinded).unwrap_or_default();
+                a.assetblinder =
+                    transaction.output_assetblinder_hex(vout, all_unblinded).unwrap_or_default();
+                a.amountblinder =
+                    transaction.output_amountblinder_hex(vout, all_unblinded).unwrap_or_default();
+            }
+            outputs.push(a);
+        }
+
+        Ok(TxListItem {
+            block_height: self.height.unwrap_or_default(),
+            created_at: self.created_at.clone(),
+            type_,
+            memo: self
+                .create_transaction
+                .as_ref()
+                .and_then(|c| c.memo.clone())
+                .unwrap_or("".to_string()),
+            txhash: self.txid.clone(),
+            transaction_size: len,
+            transaction: self.hex.clone(), // FIXME
+            satoshi: self.satoshi.clone(),
+            rbf_optin: self.rbf_optin, // TODO: TransactionMeta -> TxListItem rbf_optin
+            cap_cpfp: false,           // TODO: TransactionMeta -> TxListItem cap_cpfp
+            can_rbf: false,            // TODO: TransactionMeta -> TxListItem can_rbf
+            has_payment_request: false, // TODO: TransactionMeta -> TxListItem has_payment_request
+            server_signed: false,      // TODO: TransactionMeta -> TxListItem server_signed
+            user_signed: self.user_signed,
+            spv_verified: self.spv_verified.to_string(),
+            instant: false,
+            fee: self.fee,
+            fee_rate,
+            addressees, // notice the extra "e" -- its intentional
+            inputs,
+            outputs,
+            transaction_vsize: len,  //TODO
+            transaction_weight: len, //TODO
+        })
     }
 }
 

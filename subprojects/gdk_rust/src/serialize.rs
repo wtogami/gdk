@@ -41,7 +41,7 @@ pub fn address_io_value(addr: &AddressIO) -> Value {
 
 pub fn txitem_value(tx: &TxListItem) -> Value {
     let inputs = Value::Array(tx.inputs.iter().map(address_io_value).collect());
-    let outputs = Value::Array(tx.inputs.iter().map(address_io_value).collect());
+    let outputs = Value::Array(tx.outputs.iter().map(address_io_value).collect());
     let mut satoshi = tx.satoshi.clone();
     for (_, v) in satoshi.iter_mut() {
         *v = v.abs();
